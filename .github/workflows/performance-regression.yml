@@ -320,6 +320,7 @@ jobs:
     needs: [build, performance-test]
     permissions:
       pull-requests: write
+      contents: read
     steps:
       - uses: actions/checkout@v4
 

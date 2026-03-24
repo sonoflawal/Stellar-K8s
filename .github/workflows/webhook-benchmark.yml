@@ -320,6 +320,7 @@ jobs:
     if: github.event_name == 'pull_request'
     permissions:
       pull-requests: write
+      contents: read
     steps:
       - uses: actions/checkout@v4
 
@@ -404,6 +405,7 @@ jobs:
 
       - name: Post comment
         uses: peter-evans/create-or-update-comment@v4
+        continue-on-error: true
         with:
           issue-number: ${{ github.event.pull_request.number }}
           body-path: pr-comment.md
