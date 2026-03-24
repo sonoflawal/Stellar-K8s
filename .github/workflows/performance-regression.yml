@@ -1,14 +1,6 @@
 name: Performance Regression Testing
 
 on:
-  pull_request:
-    branches: [main]
-    paths:
-      - 'src/**'
-      - 'Cargo.toml'
-      - 'Cargo.lock'
-      - 'benchmarks/**'
-      - '.github/workflows/performance-regression.yml'
   workflow_dispatch:
     inputs:
       baseline_version:
