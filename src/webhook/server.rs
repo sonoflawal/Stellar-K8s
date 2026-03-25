@@ -175,7 +175,7 @@ impl WebhookServer {
     }
 
     /// Validate a StellarNode (built-in spec validation first, then Wasm plugins)
-    #[instrument(skip(self, input))]
+    #[instrument(skip(self, input), fields(node_name = "-", namespace = "-", reconcile_id = "-"))]
     pub async fn validate(&self, input: ValidationInput) -> ServerValidationResult {
         // Built-in validation: reject invalid nodeType or missing required fields before plugins
         if let Some(ref object) = input.object {
@@ -319,7 +319,7 @@ async fn ready_handler(State(state): State<Arc<WebhookServer>>) -> impl IntoResp
     }
 }
 
-#[instrument(skip(state, review))]
+#[instrument(skip(state, review), fields(node_name = "-", namespace = "-", reconcile_id = "-"))]
 async fn validate_handler(
     State(state): State<Arc<WebhookServer>>,
     Json(review): Json<AdmissionReview<StellarNode>>,
@@ -370,7 +370,7 @@ async fn validate_handler(
     (StatusCode::OK, Json(response.into_review()))
 }
 
-#[instrument(skip(_state, review))]
+#[instrument(skip(_state, review), fields(node_name = "-", namespace = "-", reconcile_id = "-"))]
 async fn mutate_handler(
     State(_state): State<Arc<WebhookServer>>,
     Json(review): Json<AdmissionReview<StellarNode>>,
@@ -420,7 +420,7 @@ async fn mutate_handler(
     }
 }
 
-#[instrument(skip(state, payload))]
+#[instrument(skip(state, payload), fields(node_name = "-", namespace = "-", reconcile_id = "-"))]
 async fn db_trigger_handler(
     State(state): State<Arc<WebhookServer>>,
     Json(payload): Json<super::types::DbTriggerInput>,

@@ -1,4 +1,4 @@
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Arc;
 
 use chrono::Utc;
@@ -7,7 +7,7 @@ use k8s_openapi::api::coordination::v1::Lease;
 use k8s_openapi::apimachinery::pkg::apis::meta::v1::MicroTime;
 use kube::api::{Api, ObjectMeta, Patch, PatchParams, PostParams};
 use stellar_k8s::{controller, crd::StellarNode, Error};
-use tracing::{info, warn, Level};
+use tracing::{info, info_span, warn, Level, Instrument};
 use tracing_subscriber::{fmt, prelude::*, EnvFilter};
 
 #[derive(Parser, Debug)]
@@ -31,6 +31,12 @@ enum Commands {
     Simulator(SimulatorCli),
 }
 
+#[derive(clap::ValueEnum, Clone, Debug)]
+enum LogFormat {
+    Json,
+    Pretty,
+}
+
 #[derive(Parser, Debug)]
 struct RunArgs {
     /// Enable mTLS for the REST API
@@ -52,6 +58,10 @@ struct RunArgs {
     /// Custom scheduler name (used when --scheduler is set)
     #[arg(long, env = "SCHEDULER_NAME", default_value = "stellar-scheduler")]
     scheduler_name: String,
+
+    /// Log output format (json or pretty)
+    #[arg(long, env = "LOG_FORMAT", value_enum, default_value = "json")]
+    log_format: LogFormat,
 }
 
 #[derive(Parser, Debug)]
@@ -105,6 +115,10 @@ struct WebhookArgs {
     /// Log level (trace, debug, info, warn, error)
     #[arg(long, env = "LOG_LEVEL", default_value = "info")]
     log_level: String,
+
+    /// Log output format (json or pretty)
+    #[arg(long, env = "LOG_FORMAT", value_enum, default_value = "json")]
+    log_format: LogFormat,
 }
 
 #[tokio::main]
@@ -343,10 +357,27 @@ async fn run_webhook(args: WebhookArgs) -> Result<(), Error> {
         .with_default_directive(args.log_level.parse().unwrap_or(Level::INFO.into()))
         .from_env_lossy();
 
+    let fmt_layer = match args.log_format {
+        LogFormat::Json => {
+            fmt::layer()
+                .json()
+                .flatten_event(true)
+                .with_current_span(true)
+                .with_span_list(true)
+                .with_target(true)
+        }
+        LogFormat::Pretty => fmt::layer().with_target(true),
+    };
+
+    let namespace = std::env::var("OPERATOR_NAMESPACE").unwrap_or_else(|_| "default".to_string());
+
     tracing_subscriber::registry()
         .with(env_filter)
-        .with(fmt::layer().with_target(true))
+        .with(fmt_layer)
         .init();
+
+    let root_span = info_span!("operator", node_name = "-", namespace = %namespace, reconcile_id = "-");
+    let _root_enter = root_span.enter();
 
     info!(
         "Starting Webhook Server v{} on {}",
@@ -398,7 +429,17 @@ async fn run_operator(args: RunArgs) -> Result<(), Error> {
         .with_default_directive(Level::INFO.into())
         .from_env_lossy();
 
-    let fmt_layer = fmt::layer().with_target(true);
+    let fmt_layer = match args.log_format {
+        LogFormat::Json => {
+            fmt::layer()
+                .json()
+                .flatten_event(true)
+                .with_current_span(true)
+                .with_span_list(true)
+                .with_target(true)
+        }
+        LogFormat::Pretty => fmt::layer().with_target(true),
+    };
 
     // Register the subscriber with both stdout logging and OpenTelemetry tracing
     let registry = tracing_subscriber::registry()
@@ -411,9 +452,21 @@ async fn run_operator(args: RunArgs) -> Result<(), Error> {
     if otel_enabled {
         let otel_layer = stellar_k8s::telemetry::init_telemetry(&registry);
         registry.with(otel_layer).init();
-        info!("OpenTelemetry tracing initialized");
     } else {
         registry.init();
+    }
+
+    let root_span = info_span!(
+        "operator",
+        node_name = "-",
+        namespace = %args.namespace,
+        reconcile_id = "-"
+    );
+    let _root_enter = root_span.enter();
+
+    if otel_enabled {
+        info!("OpenTelemetry tracing initialized");
+    } else {
         info!("OpenTelemetry tracing disabled (OTEL_EXPORTER_OTLP_ENDPOINT not set)");
     }
 
@@ -515,7 +568,7 @@ async fn run_operator(args: RunArgs) -> Result<(), Error> {
 
         tokio::spawn(async move {
             run_leader_election(lease_client, &lease_ns, &identity, is_leader_bg).await;
-        });
+        }.instrument(root_span.clone()));
     }
 
     // Create shared controller state
@@ -526,6 +579,7 @@ async fn run_operator(args: RunArgs) -> Result<(), Error> {
         mtls_config: mtls_config.clone(),
         dry_run: args.dry_run,
         is_leader: Arc::clone(&is_leader),
+        reconcile_id_counter: AtomicU64::new(0),
     });
 
     // Start the peer discovery manager
@@ -537,7 +591,7 @@ async fn run_operator(args: RunArgs) -> Result<(), Error> {
         if let Err(e) = manager.run().await {
             tracing::error!("Peer discovery manager error: {:?}", e);
         }
-    });
+    }.instrument(root_span.clone()));
 
     // Start the REST API server and optional mTLS certificate rotation
     #[cfg(feature = "rest-api")]
@@ -560,7 +614,7 @@ async fn run_operator(args: RunArgs) -> Result<(), Error> {
             if let Err(e) = stellar_k8s::rest_api::run_server(api_state, server_tls).await {
                 tracing::error!("REST API server error: {:?}", e);
             }
-        });
+        }.instrument(root_span.clone()));
 
         // Certificate rotation: when mTLS is enabled, periodically check and rotate
         // server cert if within threshold, then graceful reload of TLS config
@@ -630,7 +684,7 @@ async fn run_operator(args: RunArgs) -> Result<(), Error> {
                         }
                     }
                 }
-            });
+            }.instrument(root_span.clone()));
         }
     }
 

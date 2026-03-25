@@ -28,7 +28,10 @@ pub async fn health() -> Json<HealthResponse> {
 }
 
 /// Leader status endpoint - returns whether this replica is the active leader
-#[instrument(skip(state))]
+#[instrument(
+    skip(state),
+    fields(node_name = "-", namespace = %state.operator_namespace, reconcile_id = "-")
+)]
 pub async fn leader_status(State(state): State<Arc<ControllerState>>) -> Json<LeaderResponse> {
     let is_leader = state.is_leader.load(std::sync::atomic::Ordering::Relaxed);
     let holder_id = std::env::var("HOSTNAME")
@@ -41,7 +44,10 @@ pub async fn leader_status(State(state): State<Arc<ControllerState>>) -> Json<Le
 }
 
 /// List all StellarNodes
-#[instrument(skip(state))]
+#[instrument(
+    skip(state),
+    fields(node_name = "-", namespace = %state.operator_namespace, reconcile_id = "-")
+)]
 #[allow(deprecated)]
 pub async fn list_nodes(
     State(state): State<Arc<ControllerState>>,
@@ -82,7 +88,7 @@ pub async fn list_nodes(
 }
 
 /// Get a specific StellarNode
-#[instrument(skip(state), fields(name = %name, namespace = %namespace))]
+#[instrument(skip(state), fields(node_name = %name, namespace = %namespace, reconcile_id = "-"))]
 pub async fn get_node(
     State(state): State<Arc<ControllerState>>,
     Path((namespace, name)): Path<(String, String)>,
