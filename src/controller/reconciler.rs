@@ -125,6 +125,7 @@ pub struct ControllerState {
 ///         enable_mtls: false,
 ///         mtls_config: None,
 ///         operator_namespace: "stellar-operator".to_string(),
+///         watch_namespace: None,
 ///         dry_run: false,
 ///         is_leader: Arc::new(AtomicBool::new(true)),
 ///         operator_config: Arc::new(Default::default()),
