@@ -1338,10 +1338,13 @@ pub(crate) async fn apply_stellar_node(
     }
 
     // 14. Update status to Running with ready replica count
+    // Use configured requeue interval for healthy reconciliation
+    let requeue_interval = ctx.operator_config.reconciler.requeue_interval;
     Ok(Action::requeue(Duration::from_secs(if phase == "Ready" {
-        60
+        requeue_interval
     } else {
-        15
+        // Use shorter interval for non-ready phases
+        requeue_interval / 4
     })))
 }
 
@@ -2303,16 +2306,37 @@ async fn update_dr_status(
 pub(crate) fn error_policy(
     node: Arc<StellarNode>,
     error: &Error,
-    _ctx: Arc<ControllerState>,
+    ctx: Arc<ControllerState>,
 ) -> Action {
     error!("Reconciliation error for {}: {:?}", node.name_any(), error);
 
-    // Use shorter retry for retriable errors
+    // Get retry count from annotations (default to 0)
+    let retry_count = node
+        .metadata
+        .annotations
+        .as_ref()
+        .and_then(|a| a.get("stellar.org/error-retry-count"))
+        .and_then(|s| s.parse::<u32>().ok())
+        .unwrap_or(0);
+
+    // Calculate backoff based on error type and retry count
     let retry_duration = if error.is_retriable() {
-        Duration::from_secs(15)
+        // Use exponential backoff for retriable errors
+        ctx.operator_config
+            .reconciler
+            .calculate_backoff(retry_count)
     } else {
-        Duration::from_secs(60)
+        // Use fixed interval for non-retriable errors
+        Duration::from_secs(ctx.operator_config.reconciler.requeue_interval)
     };
+
+    debug!(
+        "Requeuing {} after {:?} (retry_count: {}, retriable: {})",
+        node.name_any(),
+        retry_duration,
+        retry_count,
+        error.is_retriable()
+    );
 
     Action::requeue(retry_duration)
 }
