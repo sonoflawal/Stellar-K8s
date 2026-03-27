@@ -94,6 +94,18 @@ pub struct ControllerState {
     pub event_reporter: Reporter,
     /// Operator-level config loaded from the Helm-rendered ConfigMap (defaultResources).
     pub operator_config: std::sync::Arc<OperatorConfig>,
+    /// Counter for generating unique reconcile IDs
+    pub reconcile_id_counter: std::sync::atomic::AtomicU64,
+    /// Timestamp of the last successful reconcile
+    pub last_reconcile_success: std::sync::Arc<std::sync::atomic::AtomicU64>,
+}
+
+impl ControllerState {
+    /// Generate a unique reconcile ID
+    pub fn next_reconcile_id(&self) -> u64 {
+        self.reconcile_id_counter
+            .fetch_add(1, std::sync::atomic::Ordering::SeqCst)
+    }
 }
 
 /// Main entry point to start the controller
@@ -459,6 +471,14 @@ async fn reconcile(obj: Arc<StellarNode>, ctx: Arc<ControllerState>) -> Result<A
                 _ => "unknown",
             };
             metrics::inc_reconcile_error("stellarnode", kind);
+        } else {
+            // Record successful reconciliation timestamp
+            let now = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_secs();
+            ctx.last_reconcile_success
+                .store(now, std::sync::atomic::Ordering::Relaxed);
         }
     }
 

@@ -905,6 +905,8 @@ async fn run_operator(args: RunArgs) -> Result<(), Error> {
             instance: None,
         },
         operator_config: Arc::new(operator_config),
+        reconcile_id_counter: std::sync::atomic::AtomicU64::new(0),
+        last_reconcile_success: Arc::new(std::sync::atomic::AtomicU64::new(0)),
     });
 
     // Start the peer discovery manager
