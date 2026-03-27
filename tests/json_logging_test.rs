@@ -69,7 +69,8 @@ fn json_log_output_contains_node_namespace_reconcile_id_fields() {
     let _enter = span.enter();
     info!("hello");
 
-    let output = String::from_utf8_lossy(&buf.lock().expect("lock poisoned"));
+    let buf_guard = buf.lock().expect("lock poisoned");
+    let output = String::from_utf8_lossy(&buf_guard);
     let first_line = output
         .lines()
         .find(|l| !l.trim().is_empty())

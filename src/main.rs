@@ -9,7 +9,7 @@ use k8s_openapi::apimachinery::pkg::apis::meta::v1::MicroTime;
 use kube::api::{Api, ObjectMeta, Patch, PatchParams, PostParams};
 use kube::ResourceExt;
 use stellar_k8s::{controller, crd::StellarNode, preflight, Error};
-use tracing::{debug, info, warn, Level};
+use tracing::{debug, info, info_span, warn, Level, Instrument};
 use tracing_subscriber::{fmt, prelude::*, EnvFilter};
 
 #[derive(Parser, Debug)]
@@ -715,15 +715,7 @@ async fn run_operator(args: RunArgs) -> Result<(), Error> {
         .with_default_directive(Level::INFO.into())
         .from_env_lossy();
 
-    let fmt_layer = match args.log_format {
-        LogFormat::Json => fmt::layer()
-            .json()
-            .flatten_event(true)
-            .with_current_span(true)
-            .with_span_list(true)
-            .with_target(true),
-        LogFormat::Pretty => fmt::layer().with_target(true),
-    };
+    let fmt_layer = fmt::layer().json().with_target(true);
 
     // Register the subscriber with both stdout logging and OpenTelemetry tracing
     let registry = tracing_subscriber::registry()
