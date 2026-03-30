@@ -107,6 +107,7 @@ VALIDATORS=["VALIDATOR1", "VALIDATOR2"]"#
                 read_pool_endpoint: None,
                 resource_meta: None,
                 vpa_config: None,
+                custom_network_passphrase: None,
             },
             status: None,
         }
@@ -197,6 +198,7 @@ VALIDATORS=["VALIDATOR1", "VALIDATOR2"]"#
                 read_pool_endpoint: None,
                 resource_meta: None,
                 vpa_config: None,
+                custom_network_passphrase: None,
             },
             status: None,
         }
@@ -285,6 +287,7 @@ VALIDATORS=["VALIDATOR1", "VALIDATOR2"]"#
                 read_pool_endpoint: None,
                 resource_meta: None,
                 vpa_config: None,
+                custom_network_passphrase: None,
             },
             status: None,
         }
@@ -528,27 +531,28 @@ VALIDATORS=["VALIDATOR1", "VALIDATOR2"]"#
         // Test Testnet
         node.spec.network = StellarNetwork::Testnet;
         assert_eq!(
-            node.spec.network.passphrase(),
+            node.spec.network_passphrase(),
             "Test SDF Network ; September 2015"
         );
 
         // Test Mainnet
         node.spec.network = StellarNetwork::Mainnet;
         assert_eq!(
-            node.spec.network.passphrase(),
+            node.spec.network_passphrase(),
             "Public Global Stellar Network ; September 2015"
         );
 
         // Test Futurenet
         node.spec.network = StellarNetwork::Futurenet;
         assert_eq!(
-            node.spec.network.passphrase(),
+            node.spec.network_passphrase(),
             "Test SDF Future Network ; October 2022"
         );
 
         // Test Custom
-        node.spec.network = StellarNetwork::Custom("My Custom Network".to_string());
-        assert_eq!(node.spec.network.passphrase(), "My Custom Network");
+        node.spec.network = StellarNetwork::Custom;
+        node.spec.custom_network_passphrase = Some("My Custom Network".to_string());
+        assert_eq!(node.spec.network_passphrase(), "My Custom Network");
     }
 
     /// Test that validator nodes require quorum set
