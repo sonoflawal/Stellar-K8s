@@ -261,7 +261,7 @@ fn search_docs(query: &str, full: bool) -> Result<()> {
     let results = search::search(query);
 
     if results.is_empty() {
-        println!("No results found for '{}'", query);
+        println!("No results found for '{query}'");
         return Ok(());
     }
 
@@ -273,7 +273,7 @@ fn search_docs(query: &str, full: bool) -> Result<()> {
             println!("{}\n", doc.content);
         } else {
             for snippet in snippets {
-                println!("  {}\n", snippet);
+                println!("  {snippet}\n");
             }
         }
     }
@@ -831,6 +831,7 @@ mod tests {
                 network_policy: None,
                 dr_config: None,
                 pod_anti_affinity: Default::default(),
+                placement: Default::default(),
                 topology_spread_constraints: None,
                 cve_handling: None,
                 read_replica_config: None,

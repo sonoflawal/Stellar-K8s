@@ -174,17 +174,21 @@ impl DiffResult {
     /// Print colored terminal output
     fn print_terminal(&self, args: &DiffArgs) -> Result<(), Error> {
         if !self.node_exists {
-            eprintln!("❌ StellarNode '{}/{}' not found in cluster", self.namespace, self.node_name);
-            return Err(Error::ConfigError(
-                format!("StellarNode '{}/{}' not found", self.namespace, self.node_name)
-            ));
+            eprintln!(
+                "❌ StellarNode '{}/{}' not found in cluster",
+                self.namespace, self.node_name
+            );
+            return Err(Error::ConfigError(format!(
+                "StellarNode '{}/{}' not found",
+                self.namespace, self.node_name
+            )));
         }
 
         println!("\n{}", "═".repeat(80));
         println!(
             "🔍 Diff for StellarNode: {}/{}",
-            self.namespace.bold(),
-            self.node_name.bold()
+            self.namespace.as_str().bold(),
+            self.node_name.as_str().bold()
         );
         println!("{}\n", "═".repeat(80));
 
@@ -198,15 +202,33 @@ impl DiffResult {
         println!();
 
         if self.summary.total == 0 {
-            println!("ℹ️  No resources found. The StellarNode may not have any managed resources yet.");
+            println!(
+                "ℹ️  No resources found. The StellarNode may not have any managed resources yet."
+            );
             return Ok(());
         }
 
         // Group by status using simple filters
-        let added: Vec<_> = self.resources.iter().filter(|r| r.status == "added").collect();
-        let removed: Vec<_> = self.resources.iter().filter(|r| r.status == "removed").collect();
-        let modified: Vec<_> = self.resources.iter().filter(|r| r.status == "modified").collect();
-        let unchanged: Vec<_> = self.resources.iter().filter(|r| r.status == "unchanged").collect();
+        let added: Vec<_> = self
+            .resources
+            .iter()
+            .filter(|r| r.status == "added")
+            .collect();
+        let removed: Vec<_> = self
+            .resources
+            .iter()
+            .filter(|r| r.status == "removed")
+            .collect();
+        let modified: Vec<_> = self
+            .resources
+            .iter()
+            .filter(|r| r.status == "modified")
+            .collect();
+        let unchanged: Vec<_> = self
+            .resources
+            .iter()
+            .filter(|r| r.status == "unchanged")
+            .collect();
 
         // Only show resources with changes unless --all-resources
         let show_all = args.all_resources;
@@ -244,13 +266,13 @@ impl DiffResult {
 
     fn print_count(&self, prefix: &str, count: &usize, color: &str) {
         let colored = match color {
-            "green" => format!("\x1b[32m{}\x1b[0m", count),
-            "red" => format!("\x1b[31m{}\x1b[0m", count),
-            "yellow" => format!("\x1b[33m{}\x1b[0m", count),
-            "gray" => format!("\x1b[90m{}\x1b[0m", count),
+            "green" => format!("\x1b[32m{count}\x1b[0m"),
+            "red" => format!("\x1b[31m{count}\x1b[0m"),
+            "yellow" => format!("\x1b[33m{count}\x1b[0m"),
+            "gray" => format!("\x1b[90m{count}\x1b[0m"),
             _ => count.to_string(),
         };
-        println!("{}{}", prefix, colored);
+        println!("{prefix}{colored}");
     }
 
     fn print_resource_diff_terminal(
@@ -274,7 +296,10 @@ impl DiffResult {
         };
         let reset = "\x1b[0m";
 
-        println!("\n{} {}{}/{} ({}){}", icon, color, diff.kind, diff.name, diff.status, reset);
+        println!(
+            "\n{} {}{}/{} ({}){}",
+            icon, color, diff.kind, diff.name, diff.status, reset
+        );
 
         if args.summary {
             return Ok(());
@@ -284,13 +309,13 @@ impl DiffResult {
         if !diff.changed_fields.is_empty() {
             println!("   Changed fields:");
             for field in &diff.changed_fields {
-                println!("     - {}", field);
+                println!("     - {field}");
             }
         }
 
         // Show diff text if available
         if let Some(diff_text) = &diff.diff_text {
-            println!("\n{}", diff_text);
+            println!("\n{diff_text}");
         }
 
         // Show ConfigMap data if requested
@@ -300,15 +325,18 @@ impl DiffResult {
                     println!("\n   📄 ConfigMap data:");
                     if let Some(obj) = data.as_object() {
                         for (key, value) in obj {
-                            println!("   ── {} ──", key);
+                            println!("   ── {key} ──");
                             // Show first few lines of config files
                             let value_str = value.as_str().unwrap_or("");
                             let lines: Vec<&str> = value_str.lines().take(10).collect();
                             for line in lines {
-                                println!("     {}", line);
+                                println!("     {line}");
                             }
                             if value_str.lines().count() > 10 {
-                                println!("     ... ({} more lines)", value_str.lines().count() - 10);
+                                println!(
+                                    "     ... ({} more lines)",
+                                    value_str.lines().count() - 10
+                                );
                             }
                         }
                     }
@@ -322,17 +350,21 @@ impl DiffResult {
     /// Print JSON output
     fn print_json(&self) -> Result<(), Error> {
         let json = serde_json::to_string_pretty(self)?;
-        println!("{}", json);
+        println!("{json}");
         Ok(())
     }
 
     /// Print unified diff format
     fn print_unified(&self) -> Result<(), Error> {
-        println!("# Diff for StellarNode: {}/{}", self.namespace, self.node_name);
+        println!(
+            "# Diff for StellarNode: {}/{}",
+            self.namespace, self.node_name
+        );
         println!();
 
         for diff in &self.resources {
-            if diff.status == "unchanged" && !self.resources.iter().any(|r| r.status != "unchanged") {
+            if diff.status == "unchanged" && !self.resources.iter().any(|r| r.status != "unchanged")
+            {
                 continue;
             }
 
@@ -340,7 +372,7 @@ impl DiffResult {
             println!("+++ b/{}/{}", diff.kind.to_lowercase(), diff.name);
 
             if let Some(diff_text) = &diff.diff_text {
-                println!("{}", diff_text);
+                println!("{diff_text}");
             }
             println!();
         }
@@ -362,25 +394,27 @@ pub async fn diff(args: DiffArgs) -> Result<(), Error> {
             context: Some(context.clone()),
             ..Default::default()
         })
-        .await?;
+        .await
+        .map_err(|e| Error::ConfigError(format!("Failed to load kubeconfig context: {e}")))?;
         Client::try_from(kube_config)?
     } else {
         Client::try_default().await?
     };
 
     // Fetch the StellarNode
-    let stellar_node_api: Api<StellarNode> = Api::namespaced(
-        client.clone(),
-        &args.namespace,
-    );
+    let stellar_node_api: Api<StellarNode> = Api::namespaced(client.clone(), &args.namespace);
 
     let stellar_node = match stellar_node_api.get(&args.name).await {
         Ok(node) => node,
         Err(kube::Error::Api(e)) if e.code == 404 => {
-            eprintln!("❌ StellarNode '{}/{}' not found", args.namespace, args.name);
-            return Err(Error::ConfigError(
-                format!("StellarNode '{}/{}' not found", args.namespace, args.name)
-            ));
+            eprintln!(
+                "❌ StellarNode '{}/{}' not found",
+                args.namespace, args.name
+            );
+            return Err(Error::ConfigError(format!(
+                "StellarNode '{}/{}' not found",
+                args.namespace, args.name
+            )));
         }
         Err(e) => return Err(Error::from(e)),
     };
@@ -613,10 +647,7 @@ async fn diff_hpa(client: &Client, node: &StellarNode) -> Result<ResourceDiff, E
 }
 
 /// Diff a NetworkPolicy
-async fn diff_network_policy(
-    client: &Client,
-    node: &StellarNode,
-) -> Result<ResourceDiff, Error> {
+async fn diff_network_policy(client: &Client, node: &StellarNode) -> Result<ResourceDiff, Error> {
     let namespace = node.namespace().unwrap_or_else(|| "default".to_string());
     let name = resource_name(node, "network-policy");
     let api: Api<NetworkPolicy> = Api::namespaced(client.clone(), &namespace);
@@ -709,32 +740,32 @@ fn generate_diff(
             let mut changed = Vec::new();
 
             // Compare labels
-            let desired_labels = desired_meta.labels.unwrap_or_default();
-            let live_labels = live.labels.unwrap_or_default();
+            let desired_labels = desired_meta.labels.clone().unwrap_or_default();
+            let live_labels = live.labels.clone().unwrap_or_default();
 
             for (key, value) in &desired_labels {
                 if !live_labels.contains_key(key) {
-                    changed.push(format!("labels.{} (missing)", key));
+                    changed.push(format!("labels.{key} (missing)"));
                 } else if live_labels.get(key) != Some(value) {
-                    changed.push(format!("labels.{}", key));
+                    changed.push(format!("labels.{key}"));
                 }
             }
 
             for key in live_labels.keys() {
                 if !desired_labels.contains_key(key) {
-                    changed.push(format!("labels.{} (extra)", key));
+                    changed.push(format!("labels.{key} (extra)"));
                 }
             }
 
             // Compare annotations
-            let desired_annotations = desired_meta.annotations.unwrap_or_default();
-            let live_annotations = live.annotations.unwrap_or_default();
+            let desired_annotations = desired_meta.annotations.clone().unwrap_or_default();
+            let live_annotations = live.annotations.clone().unwrap_or_default();
 
             for (key, value) in &desired_annotations {
                 if !live_annotations.contains_key(key) {
-                    changed.push(format!("annotations.{} (missing)", key));
+                    changed.push(format!("annotations.{key} (missing)"));
                 } else if live_annotations.get(key) != Some(value) {
-                    changed.push(format!("annotations.{}", key));
+                    changed.push(format!("annotations.{key}"));
                 }
             }
 
@@ -744,8 +775,8 @@ fn generate_diff(
                 let diff_text = generate_unified_diff(
                     &format!("a/{kind}/{name}"),
                     &format!("b/{kind}/{name}"),
-                    &format!("{:#?}", desired_meta),
-                    &format!("{:#?}", live),
+                    &format!("{desired_meta:#?}"),
+                    &format!("{live:#?}"),
                 );
                 ("modified".to_string(), Some(diff_text), changed)
             }
@@ -780,8 +811,8 @@ fn generate_unified_diff(
     let to_lines: Vec<&str> = to_content.lines().collect();
 
     let mut result = String::new();
-    writeln!(&mut result, "--- {}", from_label).unwrap();
-    writeln!(&mut result, "+++ {}", to_label).unwrap();
+    writeln!(&mut result, "--- {from_label}").unwrap();
+    writeln!(&mut result, "+++ {to_label}").unwrap();
 
     // Simple line-by-line diff (in production, use a proper diff library)
     let mut i = 0;
@@ -808,6 +839,16 @@ fn generate_unified_diff(
     }
 
     result
+}
+
+trait ColoredOutput {
+    fn bold(&self) -> String;
+}
+
+impl ColoredOutput for &str {
+    fn bold(&self) -> String {
+        format!("\x1b[1m{self}\x1b[0m")
+    }
 }
 
 #[cfg(test)]
@@ -914,16 +955,5 @@ mod tests {
         assert_eq!(summary.added, 1);
         assert_eq!(summary.removed, 0);
         assert_eq!(summary.modified, 1);
-    }
-}
-
-// Extension trait for colored output
-trait ColoredOutput {
-    fn bold(&self) -> String;
-}
-
-impl ColoredOutput for &str {
-    fn bold(&self) -> String {
-        format!("\x1b[1m{}\x1b[0m", self)
     }
 }

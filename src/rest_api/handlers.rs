@@ -5,10 +5,9 @@ use std::sync::Arc;
 use axum::{
     extract::{Path, State},
     http::StatusCode,
-    response::IntoResponse,
     Json,
 };
-use chrono::{DateTime, Duration, Utc};
+use chrono::{Duration, Utc};
 use kube::{api::Api, ResourceExt};
 use tracing::{error, instrument};
 
@@ -30,7 +29,8 @@ pub async fn get_search_index() -> axum::response::Response {
         .unwrap()
 }
 
-/// Health check endpoint
+/// Health endpoint
+#[instrument]
 pub async fn health() -> Json<HealthResponse> {
     Json(HealthResponse {
         status: "healthy".to_string(),
@@ -194,7 +194,7 @@ pub async fn set_log_level(
     }
 
     Ok(Json(LogLevelResponse {
-        current_level: req.level,
+        current_level: req.level.clone(),
         expires_at,
         message: format!("Log level set to {}", req.level),
     }))

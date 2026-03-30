@@ -18,9 +18,10 @@ use k8s_openapi::api::autoscaling::v2::{
     MetricTarget, ObjectMetricSource,
 };
 use k8s_openapi::api::core::v1::{
-    Affinity, ConfigMap, Container, ContainerPort, EnvVar, EnvVarSource, PersistentVolumeClaim,
-    PersistentVolumeClaimSpec, PodAffinityTerm, PodAntiAffinity, PodSpec, PodTemplateSpec,
-    ResourceRequirements as K8sResources, SecretKeySelector, Service, ServicePort, ServiceSpec,
+    Affinity, Capabilities, ConfigMap, Container, ContainerPort, EnvVar, EnvVarSource,
+    PersistentVolumeClaim, PersistentVolumeClaimSpec, PodAffinityTerm, PodAntiAffinity,
+    PodSecurityContext, PodSpec, PodTemplateSpec, ResourceRequirements as K8sResources,
+    SeccompProfile, SecretKeySelector, SecurityContext, Service, ServicePort, ServiceSpec,
     TypedLocalObjectReference, Volume, VolumeMount, VolumeResourceRequirements,
     WeightedPodAffinityTerm,
 };
@@ -329,7 +330,7 @@ pub async fn ensure_config_map(
     Ok(())
 }
 
-fn build_config_map(
+pub(crate) fn build_config_map(
     node: &StellarNode,
     quorum_override: Option<crate::controller::vsl::QuorumSet>,
     enable_mtls: bool,
@@ -1320,6 +1321,14 @@ fn build_pod_template(
             &node.name_any(),
         )),
         affinity: merge_workload_affinity(node),
+        security_context: Some(PodSecurityContext {
+            run_as_non_root: Some(true),
+            seccomp_profile: Some(SeccompProfile {
+                localhost_profile: None,
+                type_: "RuntimeDefault".to_string(),
+            }),
+            ..Default::default()
+        }),
         ..Default::default()
     };
 
@@ -1494,9 +1503,35 @@ fn build_pod_template(
     }
     // ==========================================================================
 
+    let mut apparmor_annotations = BTreeMap::new();
+    if let Some(containers) = &pod_spec.init_containers {
+        for container in containers {
+            apparmor_annotations.insert(
+                format!(
+                    "container.apparmor.security.beta.kubernetes.io/{}",
+                    container.name
+                ),
+                "runtime/default".to_string(),
+            );
+        }
+    }
+    for container in &pod_spec.containers {
+        apparmor_annotations.insert(
+            format!(
+                "container.apparmor.security.beta.kubernetes.io/{}",
+                container.name
+            ),
+            "runtime/default".to_string(),
+        );
+    }
+
     let mut pod_object_meta = ObjectMeta {
         labels: Some(labels.clone()),
-        annotations: None,
+        annotations: if apparmor_annotations.is_empty() {
+            None
+        } else {
+            Some(apparmor_annotations)
+        },
         ..Default::default()
     };
     if let Some(inj) = seed_injection {
@@ -1514,6 +1549,29 @@ fn build_pod_template(
         )),
         spec: Some(pod_spec),
     }
+}
+
+fn parse_cpu_millicores(cpu: &str) -> Option<u32> {
+    let trimmed = cpu.trim();
+    if let Some(milli) = trimmed.strip_suffix('m') {
+        return milli.parse::<u32>().ok();
+    }
+
+    let cores = trimmed.parse::<f64>().ok()?;
+    if cores.is_sign_negative() {
+        return None;
+    }
+
+    Some((cores * 1000.0).round() as u32)
+}
+
+fn derive_worker_threads(node: &StellarNode) -> u32 {
+    let millicores = parse_cpu_millicores(&node.spec.resources.limits.cpu)
+        .or_else(|| parse_cpu_millicores(&node.spec.resources.requests.cpu))
+        .unwrap_or(1000);
+
+    let cores = millicores.div_ceil(1000).clamp(1, 32);
+    cores.max(1)
 }
 
 fn network_spread_label_selector(spec: &StellarNodeSpec) -> LabelSelector {
@@ -1737,6 +1795,47 @@ fn build_container(node: &StellarNode, enable_mtls: bool) -> Container {
         ..Default::default()
     }];
 
+    let worker_threads = derive_worker_threads(node);
+    match node.spec.node_type {
+        NodeType::Validator => {
+            env_vars.push(EnvVar {
+                name: "STELLAR_CORE_WORKER_THREADS".to_string(),
+                value: Some(worker_threads.to_string()),
+                ..Default::default()
+            });
+            env_vars.push(EnvVar {
+                name: "STELLAR_CORE_HTTP_QUERY_THREADS".to_string(),
+                value: Some((worker_threads.max(2) / 2).max(1).to_string()),
+                ..Default::default()
+            });
+        }
+        NodeType::Horizon => {
+            let ingest_workers = node
+                .spec
+                .horizon_config
+                .as_ref()
+                .map(|cfg| cfg.ingest_workers.max(1))
+                .unwrap_or(worker_threads);
+            env_vars.push(EnvVar {
+                name: "HORIZON_INGEST_WORKERS".to_string(),
+                value: Some(ingest_workers.to_string()),
+                ..Default::default()
+            });
+        }
+        NodeType::SorobanRpc => {
+            env_vars.push(EnvVar {
+                name: "SOROBAN_RPC_WORKER_THREADS".to_string(),
+                value: Some(worker_threads.to_string()),
+                ..Default::default()
+            });
+            env_vars.push(EnvVar {
+                name: "CAPTIVE_CORE_WORKER_THREADS".to_string(),
+                value: Some((worker_threads / 2).max(1).to_string()),
+                ..Default::default()
+            });
+        }
+    }
+
     // Source validator seed from Secret or shared RAM volume (KMS)
     if let NodeType::Validator = node.spec.node_type {
         if let Some(validator_config) = &node.spec.validator_config {
@@ -1945,6 +2044,19 @@ fn build_container(node: &StellarNode, enable_mtls: bool) -> Container {
             requests: Some(requests),
             limits: Some(limits),
             claims: None,
+        }),
+        security_context: Some(SecurityContext {
+            allow_privilege_escalation: Some(false),
+            capabilities: Some(Capabilities {
+                add: None,
+                drop: Some(vec!["ALL".to_string()]),
+            }),
+            run_as_non_root: Some(true),
+            seccomp_profile: Some(SeccompProfile {
+                localhost_profile: None,
+                type_: "RuntimeDefault".to_string(),
+            }),
+            ..Default::default()
         }),
         volume_mounts: Some(volume_mounts),
         ..Default::default()
@@ -2669,6 +2781,7 @@ mod ensure_pvc_tests {
                 network_policy: None,
                 dr_config: None,
                 pod_anti_affinity: Default::default(),
+                placement: Default::default(),
                 topology_spread_constraints: None,
                 cve_handling: None,
                 snapshot_schedule: None,
