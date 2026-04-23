@@ -2164,9 +2164,18 @@ fn build_container(node: &StellarNode, enable_mtls: bool) -> Container {
             ..Default::default()
         }),
         volume_mounts: Some(volume_mounts),
-        liveness_probe: apply_probe_override(None, node.spec.probes.as_ref().and_then(|p| p.liveness.as_ref())),
-        readiness_probe: apply_probe_override(None, node.spec.probes.as_ref().and_then(|p| p.readiness.as_ref())),
-        startup_probe: apply_probe_override(None, node.spec.probes.as_ref().and_then(|p| p.startup.as_ref())),
+        liveness_probe: apply_probe_override(
+            None,
+            node.spec.probes.as_ref().and_then(|p| p.liveness.as_ref()),
+        ),
+        readiness_probe: apply_probe_override(
+            None,
+            node.spec.probes.as_ref().and_then(|p| p.readiness.as_ref()),
+        ),
+        startup_probe: apply_probe_override(
+            None,
+            node.spec.probes.as_ref().and_then(|p| p.startup.as_ref()),
+        ),
         ..Default::default()
     }
 }

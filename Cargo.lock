@@ -2380,17 +2380,6 @@ dependencies = [
  "serde_json",
 ]
 
-[[package]]
-name = "k8s-openapi"
-version = "0.26.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "06d9e5e61dd037cdc51da0d7e2b2be10f497478ea7e120d85dad632adb99882b"
-dependencies = [
- "base64 0.22.1",
- "chrono",
- "serde",
- "serde_json",
-]
 
 [[package]]
 name = "kube"
@@ -4508,7 +4497,7 @@ dependencies = [
  "glob",
  "hex",
  "hostname",
- "k8s-openapi 0.26.1",
+ "k8s-openapi 0.22.0",
  "kube",
  "kube-runtime",
  "once_cell",

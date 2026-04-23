@@ -221,5 +221,8 @@ fn test_kubectl_dry_run_passthrough_for_readonly_commands() {
         }
     }
 
-    assert!(!intercepted, "Read-only commands should not be intercepted by dry-run");
+    assert!(
+        !intercepted,
+        "Read-only commands should not be intercepted by dry-run"
+    );
 }

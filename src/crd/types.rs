@@ -272,7 +272,9 @@ impl ProbeOverride {
         let mut errors = Vec::new();
         if let Some(v) = self.initial_delay_seconds {
             if v < 0 {
-                errors.push(format!("{field_prefix}.initialDelaySeconds must be >= 0, got {v}"));
+                errors.push(format!(
+                    "{field_prefix}.initialDelaySeconds must be >= 0, got {v}"
+                ));
             }
         }
         for (name, val) in [

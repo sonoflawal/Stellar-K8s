@@ -159,15 +159,26 @@ async fn run(cli: Cli) -> Result<()> {
     // Emit a dry-run notice for any command that would mutate cluster state.
     if cli.dry_run {
         let action = match &cli.command {
-            Commands::List { .. } | Commands::Status { .. } | Commands::SyncStatus { .. }
-            | Commands::Events { .. } | Commands::Version | Commands::Explain { .. }
-            | Commands::Search { .. } | Commands::Completions { .. } => None,
-            Commands::Logs { node_name, .. } => {
-                Some(format!("Stream logs from StellarNode '{node_name}' (read-only, no cluster mutation)"))
-            }
-            Commands::Debug { node_name, ephemeral, .. } => {
+            Commands::List { .. }
+            | Commands::Status { .. }
+            | Commands::SyncStatus { .. }
+            | Commands::Events { .. }
+            | Commands::Version
+            | Commands::Explain { .. }
+            | Commands::Search { .. }
+            | Commands::Completions { .. } => None,
+            Commands::Logs { node_name, .. } => Some(format!(
+                "Stream logs from StellarNode '{node_name}' (read-only, no cluster mutation)"
+            )),
+            Commands::Debug {
+                node_name,
+                ephemeral,
+                ..
+            } => {
                 if *ephemeral {
-                    Some(format!("Attach ephemeral debug container to StellarNode '{node_name}'"))
+                    Some(format!(
+                        "Attach ephemeral debug container to StellarNode '{node_name}'"
+                    ))
                 } else {
                     Some(format!("Exec into pod for StellarNode '{node_name}'"))
                 }
