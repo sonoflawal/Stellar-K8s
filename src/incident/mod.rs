@@ -45,9 +45,7 @@ pub async fn run_incident_report(args: IncidentReportArgs) -> Result<()> {
     let now = Utc::now();
     let (start_time, end_time) = calculate_window(&args, now)?;
 
-    println!(
-        "Gathering incident artifacts for window: {start_time} to {end_time}",
-    );
+    println!("Gathering incident artifacts for window: {start_time} to {end_time}",);
 
     let path = Path::new(&args.output);
     let file = File::create(path)?;

@@ -144,9 +144,7 @@ pub async fn check_archive_integrity_random(
                         url: url.to_string(),
                         healthy: false,
                         checkpoints_verified: verified_count,
-                        message: format!(
-                            "Corrupted checkpoint detected: empty file at {file_url}",
-                        ),
+                        message: format!("Corrupted checkpoint detected: empty file at {file_url}"),
                         error: Some("Empty checkpoint file".to_string()),
                     });
                 }
@@ -192,9 +190,7 @@ pub async fn check_archive_integrity_random(
         url: url.to_string(),
         healthy: true,
         checkpoints_verified: verified_count,
-        message: format!(
-            "Successfully verified {verified_count} random checkpoints",
-        ),
+        message: format!("Successfully verified {verified_count} random checkpoints",),
         error: None,
     })
 }

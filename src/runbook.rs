@@ -53,7 +53,9 @@ pub fn generate_runbook(node: &StellarNode) -> Result<String> {
     let mut runbook = String::new();
 
     // Header
-    runbook.push_str(&format!("# Troubleshooting Runbook: {namespace}/{name}\n\n"));
+    runbook.push_str(&format!(
+        "# Troubleshooting Runbook: {namespace}/{name}\n\n"
+    ));
     runbook.push_str(&format!(
         "**Generated**: {}\n",
         Utc::now().format("%Y-%m-%d %H:%M:%S UTC")
@@ -279,7 +281,6 @@ fn generate_common_troubleshooting(name: &str, namespace: &str) -> String {
     ));
     runbook.push_str(&format!(
         "# Check for pod restart loops\nkubectl get pods -n {namespace} -l app.kubernetes.io/instance={name} -o jsonpath='{{range .items[*]}}{{.metadata.name}}{{\"\\t\"}}{{.status.containerStatuses[0].restartCount}}{{\"\\n\"}}{{end}}'\n",
-        namespace, name
     ));
     runbook.push_str("```\n\n");
 
@@ -298,7 +299,6 @@ fn generate_common_troubleshooting(name: &str, namespace: &str) -> String {
     ));
     runbook.push_str(&format!(
         "# Check PVC usage\nkubectl exec -n {namespace} -it $(kubectl get pods -n {namespace} -l app.kubernetes.io/name=stellar-node,app.kubernetes.io/instance={name} -o jsonpath='{{.items[0].metadata.name}}') -- df -h /data\n",
-        namespace, namespace, name
     ));
     runbook.push_str("```\n\n");
 
@@ -401,7 +401,6 @@ fn generate_kms_troubleshooting(node: &StellarNode) -> Result<String> {
     ));
     runbook.push_str(&format!(
         "# Check service account annotations (for IRSA/Workload Identity)\nkubectl describe sa -n {namespace} $(kubectl get sa -n {namespace} -l app.kubernetes.io/instance={name} -o jsonpath='{{.items[0].metadata.name}}')\n",
-        namespace, name
     ));
     runbook.push_str("```\n\n");
 
