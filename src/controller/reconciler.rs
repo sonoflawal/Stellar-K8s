@@ -62,12 +62,14 @@ use super::finalizers::STELLAR_NODE_FINALIZER;
 use super::health;
 use super::kms_secret;
 use super::label_propagation::LabelPropagator;
+use super::maintenance;
 #[cfg(feature = "metrics")]
 use super::metrics;
 use super::mtls;
 use super::oci_snapshot;
 use super::operator_config::{hardcoded_defaults, OperatorConfig};
 use super::peer_discovery;
+use super::quorum;
 use super::remediation;
 use super::resources;
 use super::service_mesh;
@@ -201,6 +203,28 @@ pub async fn run_controller(state: Arc<ControllerState>) -> Result<()> {
             ));
         }
     }
+
+    // Start Node Drain Orchestrator in the background
+    let drain_orchestrator = Arc::new(maintenance::NodeDrainOrchestrator::new(
+        client.clone(),
+        state.event_reporter.clone(),
+    ));
+    tokio::spawn(async move {
+        if let Err(e) = drain_orchestrator.run().await {
+            error!("Node Drain Orchestrator stopped with error: {}", e);
+        }
+    });
+
+    // Start Quorum Optimizer in the background
+    let quorum_optimizer = Arc::new(quorum::QuorumOptimizer::new(
+        client.clone(),
+        state.event_reporter.clone(),
+    ));
+    tokio::spawn(async move {
+        if let Err(e) = quorum_optimizer.run().await {
+            error!("Quorum Optimizer stopped with error: {}", e);
+        }
+    });
 
     Controller::new(stellar_nodes, Config::default())
         // Watch owned resources for changes

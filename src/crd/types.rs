@@ -259,6 +259,10 @@ pub struct SnapshotScheduleConfig {
     /// Maximum number of snapshots to retain per node. Oldest snapshots are deleted when exceeded. 0 means no limit.
     #[serde(default)]
     pub retention_count: u32,
+    /// Reference to a Cloud KMS key for encrypting the snapshot (e.g. AWS KMS ARN, GCP KMS Key Name).
+    /// If provided, the operator will ensure the snapshot is encrypted using this key.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub encryption_key_ref: Option<String>,
 }
 
 /// Configuration to bootstrap a new node from an existing CSI VolumeSnapshot
@@ -351,6 +355,9 @@ pub struct ValidatorConfig {
     /// Quorum set configuration as TOML string
     #[serde(skip_serializing_if = "Option::is_none")]
     pub quorum_set: Option<String>,
+    /// Known peers configuration as TOML string (KNOWN_PEERS)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub known_peers: Option<String>,
     /// Enable history archive for this validator
     #[serde(default)]
     pub enable_history_archive: bool,
@@ -369,9 +376,48 @@ pub struct ValidatorConfig {
     /// Trusted source for Validator Selection List (VSL)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub vl_source: Option<String>,
+    /// Quorum set optimization configuration
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub quorum_optimization: Option<QuorumOptimizationConfig>,
     /// Cloud HSM configuration for secure key loading (optional)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub hsm_config: Option<HsmConfig>,
+}
+
+/// Quorum set optimization configuration
+#[derive(Clone, Debug, Default, Deserialize, Serialize, JsonSchema, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct QuorumOptimizationConfig {
+    /// Enable automated quorum set optimization
+    #[serde(default)]
+    pub enabled: bool,
+    /// Optimization mode (Manual or Auto)
+    #[serde(default)]
+    pub mode: QuorumOptimizationMode,
+    /// Interval in seconds for optimization analysis (default: 3600s / 1h)
+    #[serde(default = "default_optimization_interval")]
+    pub interval_secs: u32,
+    /// Maximum RTT threshold in ms for considering a peer "slow" (default: 500ms)
+    #[serde(default = "default_rtt_threshold")]
+    pub rtt_threshold_ms: u32,
+}
+
+fn default_optimization_interval() -> u32 {
+    3600
+}
+
+fn default_rtt_threshold() -> u32 {
+    500
+}
+
+/// Quorum optimization mode
+#[derive(Clone, Debug, Default, Deserialize, Serialize, JsonSchema, PartialEq, Eq)]
+pub enum QuorumOptimizationMode {
+    /// Suggest updates only (emits events and updates status)
+    #[default]
+    Manual,
+    /// Automatically apply recommended updates to the CRD
+    Auto,
 }
 
 // =============================================================================
