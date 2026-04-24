@@ -3205,7 +3205,7 @@ async fn perform_quorum_analysis(client: &Client, node: &StellarNode) -> Result<
     }
 
     // Create analyzer and run analysis with timeout
-    let mut analyzer = QuorumAnalyzer::new(Duration::from_secs(10), 100);
+    let mut analyzer = QuorumAnalyzer::new(Duration::from_secs(10), 100, 3);
 
     let analysis_future = analyzer.analyze_quorum(pod_ips);
     let result = tokio::time::timeout(Duration::from_secs(30), analysis_future)

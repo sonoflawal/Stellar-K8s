@@ -81,6 +81,10 @@ tolerations: []
 
 affinity: {}
 
+# PodDisruptionBudget configuration for operator deployment
+podDisruptionBudget:
+  enabled: false
+
 # Operator configuration
 operator:
   # Log level: debug, info, warn, error
@@ -140,6 +144,7 @@ defaultResources:
     limits:
       cpu: "4"
       memory: "8Gi"
+      
 
 # Feature flags — toggle operator capabilities at runtime without restart.
 featureFlags:
@@ -149,6 +154,8 @@ featureFlags:
   enablePeerDiscovery: true
   enableArchiveHealth: true
   enableSorobanMetrics: false
+  enableArchiveHealth: "false"
+
 
 security:
   audit:

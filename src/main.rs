@@ -95,6 +95,11 @@ enum LogFormat {
         NOTE: --scheduler and --dry-run are mutually exclusive."
 )]
 struct RunArgs {
+    /// GitHub repository in owner/repo format used for label readiness preflight.
+    /// If omitted, GitHub preflight is skipped.
+    #[arg(long, env = "GITHUB_REPOSITORY")]
+    github_repo: Option<String>,
+
     /// Enable mutual TLS for the REST API.
     ///
     /// When set, the operator provisions a CA and server certificate in the target namespace,
@@ -995,6 +1000,18 @@ async fn run_operator(args: RunArgs) -> Result<(), Error> {
         "Starting Stellar-K8s Operator v{}",
         env!("CARGO_PKG_VERSION")
     );
+
+    // Fast-fail preflight for GitHub automation dependencies when explicitly configured.
+    let github_repo = args
+        .github_repo
+        .as_deref()
+        .map(str::trim)
+        .filter(|r| !r.is_empty());
+    if let Some(repo) = github_repo {
+        preflight::run_gh_label_preflight(Some(repo))?;
+    } else {
+        info!("Skipping GitHub preflight (GITHUB_REPOSITORY not set)");
+    }
 
     // Initialise operator build-info metric (Issue #301)
     #[cfg(feature = "metrics")]

@@ -419,6 +419,11 @@
           "additionalProperties": true
         }
       }
+    },
+    "security": {
+      "type": "object",
+      "additionalProperties": true,
+      "description": "Security hardening settings consumed by deployment templates and policy tooling"
     }
   },
   "definitions": {
