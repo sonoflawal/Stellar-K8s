@@ -2379,6 +2379,7 @@ dependencies = [
  "serde_json",
 ]
 
+
 [[package]]
 name = "kube"
 version = "0.94.2"
@@ -4444,7 +4445,7 @@ dependencies = [
  "glob",
  "hex",
  "hostname",
- "k8s-openapi",
+ "k8s-openapi 0.22.0",
  "kube",
  "kube-runtime",
  "once_cell",
