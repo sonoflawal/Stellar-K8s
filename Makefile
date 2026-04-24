@@ -30,7 +30,7 @@ fmt-check: ## Check formatting
 
 lint: ## Run clippy
 	@echo "→ Running clippy..."
-	@$(CARGO) clippy --workspace --all-targets --features "rest-api,metrics,admission-webhook,k8s-v1-30,reconciler-fuzz" -- \
+	@K8S_OPENAPI_ENABLED_VERSION=1.30 $(CARGO) clippy --workspace --all-targets --all-features -- \
 		-D clippy::correctness \
 		-D clippy::suspicious \
 		-D clippy::perf \

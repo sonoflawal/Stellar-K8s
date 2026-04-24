@@ -216,6 +216,8 @@ VALIDATORS=["VALIDATOR1", "VALIDATOR2"]"#
                 vpa_config: None,
                 custom_network_passphrase: None,
                 nat_traversal: None,
+                cross_cloud_failover: None,
+                hitless_upgrade: None,
             },
             status: None,
         }
@@ -308,6 +310,8 @@ VALIDATORS=["VALIDATOR1", "VALIDATOR2"]"#
                 vpa_config: None,
                 custom_network_passphrase: None,
                 nat_traversal: None,
+                cross_cloud_failover: None,
+                hitless_upgrade: None,
             },
             status: None,
         }
@@ -336,6 +340,9 @@ VALIDATORS=["VALIDATOR1", "VALIDATOR2"]"#
             watch_namespace: None,
             mtls_config: None,
             dry_run: true,
+            retry_budget_retriable_secs: 15,
+            retry_budget_nonretriable_secs: 60,
+            retry_budget_max_attempts: 3,
             is_leader: Arc::new(AtomicBool::new(true)),
             event_reporter: kube::runtime::events::Reporter {
                 controller: "stellar-operator".to_string(),
@@ -347,6 +354,9 @@ VALIDATORS=["VALIDATOR1", "VALIDATOR2"]"#
             log_reload_handle: make_reload_handle(),
             log_level_expires_at: Arc::new(tokio::sync::Mutex::new(None)),
             last_event_received: Arc::new(std::sync::atomic::AtomicU64::new(0)),
+            job_registry: Arc::new(super::background_jobs::JobRegistry::new()),
+            audit_log: Arc::new(super::audit_log::AuditLog::new()),
+            oidc_config: None,
         });
 
         // Test with a retriable error (network-related)
@@ -375,6 +385,9 @@ VALIDATORS=["VALIDATOR1", "VALIDATOR2"]"#
             watch_namespace: None,
             mtls_config: None,
             dry_run: true,
+            retry_budget_retriable_secs: 15,
+            retry_budget_nonretriable_secs: 60,
+            retry_budget_max_attempts: 3,
             is_leader: Arc::new(AtomicBool::new(true)),
             event_reporter: kube::runtime::events::Reporter {
                 controller: "stellar-operator".to_string(),
@@ -386,6 +399,9 @@ VALIDATORS=["VALIDATOR1", "VALIDATOR2"]"#
             log_reload_handle: make_reload_handle(),
             log_level_expires_at: Arc::new(tokio::sync::Mutex::new(None)),
             last_event_received: Arc::new(std::sync::atomic::AtomicU64::new(0)),
+            job_registry: Arc::new(super::background_jobs::JobRegistry::new()),
+            audit_log: Arc::new(super::audit_log::AuditLog::new()),
+            oidc_config: None,
         });
 
         // Test with validation error (non-retriable)
@@ -413,6 +429,9 @@ VALIDATORS=["VALIDATOR1", "VALIDATOR2"]"#
             watch_namespace: None,
             mtls_config: None,
             dry_run: true,
+            retry_budget_retriable_secs: 15,
+            retry_budget_nonretriable_secs: 60,
+            retry_budget_max_attempts: 3,
             is_leader: Arc::new(AtomicBool::new(true)),
             event_reporter: kube::runtime::events::Reporter {
                 controller: "stellar-operator".to_string(),
@@ -424,6 +443,9 @@ VALIDATORS=["VALIDATOR1", "VALIDATOR2"]"#
             log_level_expires_at: Arc::new(tokio::sync::Mutex::new(None)),
             log_reload_handle: make_reload_handle(),
             last_event_received: Arc::new(std::sync::atomic::AtomicU64::new(0)),
+            job_registry: Arc::new(super::background_jobs::JobRegistry::new()),
+            audit_log: Arc::new(super::audit_log::AuditLog::new()),
+            oidc_config: None,
         });
 
         let errors = vec![
@@ -643,6 +665,9 @@ VALIDATORS=["VALIDATOR1", "VALIDATOR2"]"#
             watch_namespace: None,
             mtls_config: None,
             dry_run: false,
+            retry_budget_retriable_secs: 15,
+            retry_budget_nonretriable_secs: 60,
+            retry_budget_max_attempts: 3,
             is_leader: Arc::new(AtomicBool::new(true)),
             event_reporter: kube::runtime::events::Reporter {
                 controller: "stellar-operator".to_string(),
@@ -654,6 +679,9 @@ VALIDATORS=["VALIDATOR1", "VALIDATOR2"]"#
             log_reload_handle: make_reload_handle(),
             log_level_expires_at: Arc::new(tokio::sync::Mutex::new(None)),
             last_event_received: Arc::new(std::sync::atomic::AtomicU64::new(0)),
+            job_registry: Arc::new(super::background_jobs::JobRegistry::new()),
+            audit_log: Arc::new(super::audit_log::AuditLog::new()),
+            oidc_config: None,
         };
 
         assert_eq!(state.operator_namespace, "test-namespace");
@@ -677,6 +705,9 @@ VALIDATORS=["VALIDATOR1", "VALIDATOR2"]"#
             watch_namespace: None,
             mtls_config: None,
             dry_run: true,
+            retry_budget_retriable_secs: 15,
+            retry_budget_nonretriable_secs: 60,
+            retry_budget_max_attempts: 3,
             is_leader: Arc::new(AtomicBool::new(true)),
             event_reporter: kube::runtime::events::Reporter {
                 controller: "stellar-operator".to_string(),
@@ -688,6 +719,9 @@ VALIDATORS=["VALIDATOR1", "VALIDATOR2"]"#
             log_reload_handle: make_reload_handle(),
             log_level_expires_at: Arc::new(tokio::sync::Mutex::new(None)),
             last_event_received: Arc::new(std::sync::atomic::AtomicU64::new(0)),
+            job_registry: Arc::new(super::background_jobs::JobRegistry::new()),
+            audit_log: Arc::new(super::audit_log::AuditLog::new()),
+            oidc_config: None,
         };
 
         assert!(

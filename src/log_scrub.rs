@@ -344,7 +344,7 @@ mod tests {
     #[test]
     fn test_bearer_token_is_redacted() {
         let input = "Authorization: Bearer eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9.payload.sig";
-        let output = redact(&input);
+        let output = redact(input);
         assert!(
             !output.contains("eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9"),
             "token must be redacted"
@@ -401,7 +401,7 @@ mod tests {
     #[test]
     fn test_clean_log_unchanged() {
         let input = "Reconciling StellarNode default/my-validator (type: Validator)";
-        let output = redact(&input);
+        let output = redact(input);
         assert_eq!(input, output, "clean log must pass through unchanged");
     }
 
