@@ -155,7 +155,6 @@ reconciler-fuzz = []
 
 # Kubernetes API version selection (exactly one must be enabled)
 k8s-v1-30 = ["k8s-openapi/v1_30"]
-k8s-v1-31 = ["k8s-openapi/v1_31"]
 
 [dev-dependencies]
 tokio-test = "0.4"

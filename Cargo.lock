@@ -2379,7 +2379,6 @@ dependencies = [
  "serde_json",
 ]
 
-
 [[package]]
 name = "kube"
 version = "0.94.2"
@@ -2441,8 +2440,8 @@ dependencies = [
  "form_urlencoded",
  "http 1.4.0",
  "json-patch",
- "k8s-openapi 0.22.0",
- "schemars 0.8.22",
+ "k8s-openapi",
+ "schemars",
  "serde",
  "serde-value",
  "serde_json",
@@ -4446,7 +4445,7 @@ dependencies = [
  "hex",
  "hmac",
  "hostname",
- "k8s-openapi 0.22.0",
+ "k8s-openapi",
  "kube",
  "kube-runtime",
  "once_cell",
