@@ -1048,6 +1048,7 @@ impl Default for LoadBalancerConfig {
             annotations: None,
             health_check_enabled: true,
             health_check_port: default_health_check_port(),
+            external_dns: None,
         }
     }
 }
@@ -2285,7 +2286,7 @@ pub struct CrossCloudFailoverStatus {
     pub active_cloud: Option<String>,
 
     /// Health status of each cloud endpoint
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub cloud_health: Option<Vec<crate::controller::cross_cloud_failover::CloudHealthStatus>>,
 
     /// Timestamp of the last health check

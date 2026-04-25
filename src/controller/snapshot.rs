@@ -8,7 +8,7 @@ use std::collections::BTreeMap;
 use std::str::FromStr;
 
 use chrono::Utc;
-use kube::api::{Api, DeleteParams, DynamicObject, ListParams, PostParams};
+use kube::api::{Api, DeleteParams, DynamicObject, ListParams, Patch, PatchParams, PostParams};
 use kube::discovery::ApiResource;
 use kube::{Client, ResourceExt};
 use tracing::{info, instrument, warn};

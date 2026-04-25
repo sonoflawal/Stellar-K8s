@@ -45,15 +45,15 @@
 //!   --cert client.crt --key client.key --cacert ca.crt
 //! ```
 
-mod auth;
-mod job_handlers;
 mod audit_handlers;
+mod auth;
 mod custom_metrics;
 mod dashboard_dto;
 mod dashboard_handlers;
 mod dto;
 mod handlers;
 mod health_summary;
+mod job_handlers;
 mod oidc;
 mod server;
 mod sustainability;

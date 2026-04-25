@@ -48,6 +48,7 @@ use crate::crd::{
     StellarNodeSpec, StorageConfiguration, WalBackupConfiguration,
 };
 use crate::error::{Error, Result};
+use crate::scheduler::scoring::extract_peer_names_from_toml;
 
 /// Get the standard labels for a StellarNode's resources
 pub(crate) fn standard_labels(node: &StellarNode) -> BTreeMap<String, String> {
@@ -1041,6 +1042,8 @@ fn build_cnpg_cluster(node: &StellarNode, config: &ManagedDatabaseConfig) -> Clu
                     p
                 },
             }),
+            external_clusters: None,
+            replica: None,
             storage: StorageConfiguration {
                 size: config.storage.size.clone(),
                 storage_class: Some(config.storage.storage_class.clone()),
@@ -1073,6 +1076,7 @@ fn build_cnpg_cluster(node: &StellarNode, config: &ManagedDatabaseConfig) -> Clu
                     owner: "stellar".to_string(),
                     secret: None,
                 }),
+                recovery: None,
             }),
             monitoring: Some(MonitoringConfiguration {
                 enable_pod_monitor: true,
@@ -1091,13 +1095,16 @@ fn build_cnpg_cluster(node: &StellarNode, config: &ManagedDatabaseConfig) -> Clu
     if let Some(repl_cfg) = &node.spec.replication_config {
         if repl_cfg.enabled && repl_cfg.role == ReplicationRole::Passive {
             let remote_name = format!("{}-primary", repl_cfg.remote_cluster_id);
-            
+
             // Define external cluster pointing to the primary in the remote region
             let external_cluster = ExternalCluster {
                 name: remote_name.clone(),
                 connection_parameters: {
                     let mut p = BTreeMap::new();
-                    p.insert("host".to_string(), format!("{}.{}.svc", node.name_any(), repl_cfg.remote_cluster_id));
+                    p.insert(
+                        "host".to_string(),
+                        format!("{}.{}.svc", node.name_any(), repl_cfg.remote_cluster_id),
+                    );
                     p.insert("user".to_string(), "stellar".to_string());
                     p.insert("dbname".to_string(), "stellar".to_string());
                     p.insert("sslmode".to_string(), "require".to_string());
@@ -1108,9 +1115,9 @@ fn build_cnpg_cluster(node: &StellarNode, config: &ManagedDatabaseConfig) -> Clu
                     key: "password".to_string(),
                 },
             };
-            
+
             cluster.spec.external_clusters = Some(vec![external_cluster]);
-            
+
             // Configure bootstrap to recover from the external cluster
             if let Some(bootstrap) = &mut cluster.spec.bootstrap {
                 bootstrap.initdb = None; // Cannot use initdb with recovery
@@ -1373,11 +1380,7 @@ async fn ensure_istio_canary_virtual_service(
     let stable_weight = 100 - canary_weight.clamp(0, 100);
     let vs_name = format!("{}-canary-vs", node.name_any());
 
-    let hosts: Vec<String> = ingress_cfg
-        .hosts
-        .iter()
-        .map(|h| h.host.clone())
-        .collect();
+    let hosts: Vec<String> = ingress_cfg.hosts.iter().map(|h| h.host.clone()).collect();
 
     let api_resource = ApiResource {
         group: "networking.istio.io".to_string(),
@@ -1631,7 +1634,7 @@ fn build_pod_template(
             Volume {
                 name: "config".to_string(),
                 config_map: Some(k8s_openapi::api::core::v1::ConfigMapVolumeSource {
-                    name: resource_name(node, "config"),
+                    name: Some(resource_name(node, "config")),
                     ..Default::default()
                 }),
                 ..Default::default()
@@ -3523,6 +3526,7 @@ fn build_network_policy(node: &StellarNode, config: &NetworkPolicyConfig) -> Net
                 )])),
                 ..Default::default()
             }),
+            ..Default::default()
         }]),
         ports: Some(vec![
             NetworkPolicyPort {
@@ -3594,7 +3598,6 @@ fn build_network_policy(node: &StellarNode, config: &NetworkPolicyConfig) -> Net
             } else {
                 Some(ingress_rules)
             },
-            egress: Some(egress_rules),
             egress: if egress_rules.is_empty() {
                 None
             } else {

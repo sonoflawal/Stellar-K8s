@@ -253,8 +253,18 @@ mod tests {
         let log = AuditLog::new();
         assert_eq!(log.count(), 0);
 
-        log.record(make_entry(AdminAction::SetLogLevel, "stellar-system", "operator", "admin"));
-        log.record(make_entry(AdminAction::NodeCreate, "default", "my-node", "user1"));
+        log.record(make_entry(
+            AdminAction::SetLogLevel,
+            "stellar-system",
+            "operator",
+            "admin",
+        ));
+        log.record(make_entry(
+            AdminAction::NodeCreate,
+            "default",
+            "my-node",
+            "user1",
+        ));
         assert_eq!(log.count(), 2);
 
         let all = log.list(None, None, None, 0);
@@ -266,8 +276,18 @@ mod tests {
     #[test]
     fn test_filter_by_namespace() {
         let log = AuditLog::new();
-        log.record(make_entry(AdminAction::NodeCreate, "ns-a", "node-a", "user"));
-        log.record(make_entry(AdminAction::NodeDelete, "ns-b", "node-b", "user"));
+        log.record(make_entry(
+            AdminAction::NodeCreate,
+            "ns-a",
+            "node-a",
+            "user",
+        ));
+        log.record(make_entry(
+            AdminAction::NodeDelete,
+            "ns-b",
+            "node-b",
+            "user",
+        ));
 
         let ns_a = log.list(Some("ns-a"), None, None, 0);
         assert_eq!(ns_a.len(), 1);

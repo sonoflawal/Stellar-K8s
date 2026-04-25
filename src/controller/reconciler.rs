@@ -71,6 +71,7 @@ use super::oci_snapshot;
 use super::operator_config::{hardcoded_defaults, OperatorConfig};
 use super::peer_discovery;
 use super::pss;
+use super::quorum;
 use super::remediation;
 use super::resources;
 use super::service_mesh;
@@ -2462,20 +2463,17 @@ async fn measure_canary_error_rate(
         .labels(&format!("app.kubernetes.io/instance={canary_name}"));
 
     let pods = pod_api.list(&lp).await.map_err(Error::KubeError)?;
-    let pod = pods
-        .items
-        .iter()
-        .find(|p| {
-            p.status
-                .as_ref()
-                .and_then(|s| s.conditions.as_ref())
-                .map(|conds| {
-                    conds
-                        .iter()
-                        .any(|c| c.type_ == "Ready" && c.status == "True")
-                })
-                .unwrap_or(false)
-        });
+    let pod = pods.items.iter().find(|p| {
+        p.status
+            .as_ref()
+            .and_then(|s| s.conditions.as_ref())
+            .map(|conds| {
+                conds
+                    .iter()
+                    .any(|c| c.type_ == "Ready" && c.status == "True")
+            })
+            .unwrap_or(false)
+    });
 
     let pod_ip = match pod.and_then(|p| p.status.as_ref()?.pod_ip.as_deref()) {
         Some(ip) => ip.to_string(),

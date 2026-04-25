@@ -260,10 +260,7 @@ pub async fn run_watcher(config: WatcherConfig) -> Result<()> {
 // ---------------------------------------------------------------------------
 
 /// Poll `GET /info` on the Stellar Core HTTP endpoint and return an observation.
-async fn poll_stellar_core(
-    client: &Client,
-    endpoint: &str,
-) -> Result<(u64, String, bool, String)> {
+async fn poll_stellar_core(client: &Client, endpoint: &str) -> Result<(u64, String, bool, String)> {
     let url = format!("{}/info", endpoint.trim_end_matches('/'));
     debug!("Polling Stellar Core at {}", url);
 

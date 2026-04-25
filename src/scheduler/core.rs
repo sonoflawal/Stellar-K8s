@@ -86,7 +86,9 @@ impl Scheduler {
         }
 
         // 2. Score nodes
-        let best_node = scoring::score_nodes(pod, &filtered_nodes, &self.client, self.prometheus.as_ref()).await?;
+        let best_node =
+            scoring::score_nodes(pod, &filtered_nodes, &self.client, self.prometheus.as_ref())
+                .await?;
 
         if let Some(node) = best_node {
             info!("Binding pod {} to node {}", pod_name, node.name_any());

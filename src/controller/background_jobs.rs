@@ -171,9 +171,7 @@ impl JobHandle {
             let finished = now_secs();
             rec.state = JobState::Succeeded;
             rec.finished_at = Some(finished);
-            rec.duration_ms = rec
-                .started_at
-                .map(|s| finished.saturating_sub(s) * 1_000);
+            rec.duration_ms = rec.started_at.map(|s| finished.saturating_sub(s) * 1_000);
             rec.failure_count = 0;
         });
     }
@@ -185,9 +183,7 @@ impl JobHandle {
             let finished = now_secs();
             rec.state = JobState::Failed;
             rec.finished_at = Some(finished);
-            rec.duration_ms = rec
-                .started_at
-                .map(|s| finished.saturating_sub(s) * 1_000);
+            rec.duration_ms = rec.started_at.map(|s| finished.saturating_sub(s) * 1_000);
             rec.failure_count += 1;
             rec.last_error = Some(error.clone());
         });
@@ -281,11 +277,7 @@ impl JobRegistry {
     /// List job records, optionally filtered by `state` and/or `kind`.
     ///
     /// Returns records newest-first.
-    pub fn list(
-        &self,
-        state_filter: Option<&str>,
-        kind_filter: Option<&str>,
-    ) -> Vec<JobRecord> {
+    pub fn list(&self, state_filter: Option<&str>, kind_filter: Option<&str>) -> Vec<JobRecord> {
         let inner = self.inner.lock().unwrap();
         let mut records: Vec<JobRecord> = inner
             .jobs

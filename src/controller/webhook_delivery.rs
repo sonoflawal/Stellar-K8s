@@ -144,7 +144,12 @@ impl WebhookEvent {
     }
 
     /// Convenience constructor for `ReconcileCompleted`.
-    pub fn reconcile_completed(namespace: &str, name: &str, success: bool, error_msg: Option<&str>) -> Self {
+    pub fn reconcile_completed(
+        namespace: &str,
+        name: &str,
+        success: bool,
+        error_msg: Option<&str>,
+    ) -> Self {
         Self::new(
             WebhookEventType::ReconcileCompleted,
             serde_json::json!({
@@ -472,10 +477,7 @@ mod tests {
 
     #[test]
     fn test_endpoint_subscribes_to_specific_type() {
-        let ep = make_endpoint(
-            "ep2",
-            vec![WebhookEventType::TransactionConfirmed],
-        );
+        let ep = make_endpoint("ep2", vec![WebhookEventType::TransactionConfirmed]);
         assert!(ep.subscribes_to(&WebhookEventType::TransactionConfirmed));
         assert!(!ep.subscribes_to(&WebhookEventType::NodeStatusChanged));
     }
@@ -499,12 +501,7 @@ mod tests {
 
     #[test]
     fn test_transaction_confirmed_event() {
-        let event = WebhookEvent::transaction_confirmed(
-            "stellar",
-            "my-node",
-            "abc123",
-            123456,
-        );
+        let event = WebhookEvent::transaction_confirmed("stellar", "my-node", "abc123", 123456);
         assert_eq!(event.event_type, WebhookEventType::TransactionConfirmed);
         assert_eq!(event.payload["tx_hash"], "abc123");
         assert_eq!(event.payload["ledger"], 123456u64);
@@ -512,12 +509,8 @@ mod tests {
 
     #[test]
     fn test_transaction_failed_event() {
-        let event = WebhookEvent::transaction_failed(
-            "stellar",
-            "my-node",
-            "def456",
-            "insufficient_fee",
-        );
+        let event =
+            WebhookEvent::transaction_failed("stellar", "my-node", "def456", "insufficient_fee");
         assert_eq!(event.event_type, WebhookEventType::TransactionFailed);
         assert_eq!(event.payload["reason"], "insufficient_fee");
     }

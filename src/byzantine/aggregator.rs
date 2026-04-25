@@ -43,7 +43,10 @@ pub fn aggregate(
     // Group by network.
     let mut by_network: HashMap<&str, Vec<&ConsensusObservation>> = HashMap::new();
     for obs in &fresh {
-        by_network.entry(obs.network.as_str()).or_default().push(obs);
+        by_network
+            .entry(obs.network.as_str())
+            .or_default()
+            .push(obs);
     }
 
     let mut results = Vec::new();
