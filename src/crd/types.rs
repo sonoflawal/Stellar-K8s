@@ -529,6 +529,88 @@ pub struct VpaConfig {
     pub container_policies: Vec<VpaContainerPolicy>,
 }
 
+/// Observed sync state of a Stellar Core node, derived from the `/info` HTTP endpoint.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub enum CoreSyncState {
+    /// Node is actively catching up on historical ledgers (compute-intensive).
+    CatchingUp,
+    /// Node is fully synced with the network (steady-state, lower resource needs).
+    #[default]
+    Synced,
+    /// State could not be determined (pod not ready, endpoint unreachable, etc.).
+    Unknown,
+}
+
+impl std::fmt::Display for CoreSyncState {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            CoreSyncState::CatchingUp => write!(f, "CatchingUp"),
+            CoreSyncState::Synced => write!(f, "Synced"),
+            CoreSyncState::Unknown => write!(f, "Unknown"),
+        }
+    }
+}
+
+/// Resource profile applied during a specific sync phase.
+#[derive(Clone, Debug, Deserialize, Serialize, JsonSchema, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct SyncPhaseResources {
+    /// CPU request (e.g. "2", "4000m")
+    pub cpu_request: String,
+    /// Memory request (e.g. "4Gi", "8Gi")
+    pub memory_request: String,
+    /// CPU limit (e.g. "4", "8000m")
+    pub cpu_limit: String,
+    /// Memory limit (e.g. "8Gi", "16Gi")
+    pub memory_limit: String,
+}
+
+/// Dynamic resource scaling based on Stellar Core sync state.
+///
+/// When enabled, the operator monitors the `/info` endpoint on port 11626 and
+/// applies `catching_up` resources while the node is catching up, then switches
+/// to `synced` resources once the node reports `"Synced!"`.  The update is done
+/// via an in-place `PATCH` on the pod's container resources (requires the
+/// `InPlacePodVerticalScaling` feature gate, available since Kubernetes 1.27).
+///
+/// # Example
+/// ```yaml
+/// syncStateScaling:
+///   enabled: true
+///   catchingUp:
+///     cpuRequest: "4"
+///     memoryRequest: "8Gi"
+///     cpuLimit: "8"
+///     memoryLimit: "16Gi"
+///   synced:
+///     cpuRequest: "500m"
+///     memoryRequest: "2Gi"
+///     cpuLimit: "2"
+///     memoryLimit: "4Gi"
+/// ```
+#[derive(Clone, Debug, Deserialize, Serialize, JsonSchema, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct SyncStateScalingConfig {
+    /// Enable or disable sync-state-driven resource scaling.
+    #[serde(default)]
+    pub enabled: bool,
+
+    /// Resources to apply while the node is in `CatchingUp` state.
+    pub catching_up: SyncPhaseResources,
+
+    /// Resources to apply once the node reaches `Synced` state.
+    pub synced: SyncPhaseResources,
+
+    /// How often (in seconds) to poll the stellar-core `/info` endpoint.
+    /// Defaults to 30 seconds.
+    #[serde(default = "default_sync_poll_interval_secs")]
+    pub poll_interval_secs: u64,
+}
+
+fn default_sync_poll_interval_secs() -> u64 {
+    30
+}
+
 /// Forensic snapshot bundle upload (S3-compatible via AWS CLI in ephemeral capture).
 #[derive(Clone, Debug, Deserialize, Serialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]

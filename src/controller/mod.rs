@@ -121,6 +121,8 @@ mod traffic_test;
 pub mod vpa;
 mod vsl;
 pub mod webhook_delivery;
+pub mod sync_state_monitor;
+pub mod sync_scale;
 
 pub use archive_health::{
     calculate_backoff, check_archive_integrity, check_history_archive_health, ArchiveHealthResult,

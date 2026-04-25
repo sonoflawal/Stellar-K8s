@@ -80,6 +80,8 @@ use super::resources;
 use super::service_mesh;
 use super::vpa as vpa_controller;
 use super::vsl;
+use super::sync_state_monitor;
+use super::sync_scale;
 
 // Constants
 #[allow(dead_code)]
@@ -1711,6 +1713,63 @@ pub(crate) async fn apply_stellar_node(
         "Health check result for {}/{}: healthy={}, synced={}, message={}",
         namespace, name, health_result.healthy, health_result.synced, health_result.message
     );
+
+    // 7a. Sync-state-driven resource scaling (Validator only)
+    //
+    // Queries the stellar-core /info endpoint to determine whether the node is
+    // "Catching up" or "Synced!" and applies the matching resource profile via
+    // an in-place pod patch (no pod restart required).
+    if let Some(scaling_config) = &node.spec.sync_state_scaling {
+        if scaling_config.enabled && node.spec.node_type == NodeType::Validator {
+            let sync_state =
+                sync_state_monitor::resolve_node_sync_state(client, node).await;
+
+            info!(
+                "Sync state for {}/{}: {}",
+                namespace, name, sync_state
+            );
+
+            // Persist the observed sync state to the CRD status.
+            {
+                let api: Api<StellarNode> = Api::namespaced(client.clone(), &namespace);
+                let profile_label = sync_state.to_string();
+                let patch = serde_json::json!({
+                    "status": {
+                        "syncState": sync_state,
+                        "syncScalingActiveProfile": profile_label,
+                    }
+                });
+                if let Err(e) = api
+                    .patch_status(
+                        &name,
+                        &PatchParams::apply("stellar-operator"),
+                        &Patch::Merge(&patch),
+                    )
+                    .await
+                {
+                    warn!("Failed to patch syncState status for {}/{}: {}", namespace, name, e);
+                }
+            }
+
+            apply_or_emit(
+                ctx,
+                node,
+                ActionType::Update,
+                "Sync-state resource scaling",
+                async {
+                    sync_scale::reconcile_sync_scaling(
+                        client,
+                        node,
+                        scaling_config,
+                        &sync_state,
+                    )
+                    .await?;
+                    Ok(())
+                },
+            )
+            .await?;
+        }
+    }
 
     // 7b. CVE scanning and automated patching
     if let Some(cve_config) = &node.spec.cve_handling {
