@@ -258,9 +258,9 @@ pub async fn get_node_health_status(
 }
 
 /// Get active incidents
-#[instrument(skip(state))]
+#[instrument(skip(_state))]
 pub async fn get_health_incidents(
-    State(state): State<Arc<ControllerState>>,
+    State(_state): State<Arc<ControllerState>>,
 ) -> Result<Json<HealthIncidentsResponse>, (StatusCode, String)> {
     debug!("Fetching active health incidents");
 

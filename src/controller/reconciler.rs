@@ -47,6 +47,7 @@ use crate::crd::{
     StellarNodeStatus,
 };
 use crate::error::{Error, Result};
+#[cfg(feature = "metrics")]
 use crate::infra;
 
 use super::archive_health::{
@@ -54,6 +55,8 @@ use super::archive_health::{
     check_history_archive_health, ArchiveHealthResult, ArchiveIntegrityCheckResult,
     ARCHIVE_LAG_THRESHOLD,
 };
+use super::audit_sink::{AuditSink, NoopAuditSink, S3AuditSink};
+use super::audit_worker::AuditWorker;
 use super::conditions;
 use super::cross_cloud_failover;
 use super::cve_reconciler;
@@ -71,11 +74,14 @@ use super::oci_snapshot;
 use super::operator_config::{hardcoded_defaults, OperatorConfig};
 use super::peer_discovery;
 use super::pss;
+use super::quorum;
 use super::remediation;
 use super::resources;
 use super::service_mesh;
 use super::vpa as vpa_controller;
 use super::vsl;
+use super::sync_state_monitor;
+use super::sync_scale;
 
 // Constants
 #[allow(dead_code)]
@@ -115,7 +121,7 @@ impl BatchSummaryReport {
         self.successes += 1;
         self.total += 1;
         self.reconciled_objects.push(object_name);
-        if self.total % self.batch_size == 0 {
+        if self.total.is_multiple_of(self.batch_size) {
             self.emit_summary();
         }
     }
@@ -125,7 +131,7 @@ impl BatchSummaryReport {
         self.failures += 1;
         self.total += 1;
         self.failure_details.push((object_name, error));
-        if self.total % self.batch_size == 0 {
+        if self.total.is_multiple_of(self.batch_size) {
             self.emit_summary();
         }
     }
@@ -221,6 +227,7 @@ pub struct ControllerState {
     /// Optional OIDC configuration for JWT-based authentication on the REST API.
     /// When `Some`, the OIDC middleware is active; when `None`, the operator falls
     /// back to Kubernetes RBAC token validation.
+    #[cfg(feature = "rest-api")]
     pub oidc_config: Option<crate::rest_api::OidcConfig>,
 }
 
@@ -332,7 +339,7 @@ pub async fn run_controller(state: Arc<ControllerState>) -> Result<()> {
     });
 
     // Start Quorum Optimizer in the background
-    let quorum_optimizer = Arc::new(quorum::QuorumOptimizer::new(
+    let quorum_optimizer = Arc::new(super::quorum::QuorumOptimizer::new(
         client.clone(),
         state.event_reporter.clone(),
     ));
@@ -341,6 +348,22 @@ pub async fn run_controller(state: Arc<ControllerState>) -> Result<()> {
             error!("Quorum Optimizer stopped with error: {}", e);
         }
     });
+
+    // Start Audit Worker if enabled
+    if state.operator_config.audit.enabled {
+        let sink: Arc<dyn AuditSink> = if let Some(s3_config) = &state.operator_config.audit.s3 {
+            Arc::new(S3AuditSink::new(s3_config.clone()).await)
+        } else {
+            Arc::new(NoopAuditSink)
+        };
+
+        let audit_worker = AuditWorker::new(client.clone(), sink);
+        tokio::spawn(async move {
+            if let Err(e) = audit_worker.run().await {
+                error!("Audit Worker stopped with error: {}", e);
+            }
+        });
+    }
 
     Controller::new(stellar_nodes, Config::default())
         // Watch owned resources for changes
@@ -1182,6 +1205,11 @@ pub(crate) async fn apply_stellar_node(
     apply_or_emit(ctx, node, ActionType::Update, "mTLS certificates", async {
         mtls::ensure_ca(client, &namespace).await?;
         mtls::ensure_node_cert(client, node).await?;
+        // If cert-manager is configured, also create the Certificate CR so
+        // cert-manager takes over issuance and rotation going forward.
+        if let Some(cm_cfg) = &node.spec.cert_manager {
+            mtls::ensure_cert_manager_certificate(client, node, cm_cfg).await?;
+        }
         Ok(())
     })
     .await?;
@@ -1625,6 +1653,19 @@ pub(crate) async fn apply_stellar_node(
     )
     .await?;
 
+    // 6.5. Gas Autoscaling (Soroban RPC only)
+    if !ctx.dry_run && node.spec.node_type == NodeType::SorobanRpc {
+        if let Some(autoscaling) = &node.spec.autoscaling {
+            if let Some(gas_cfg) = &autoscaling.gas_autoscaling {
+                crate::controller::gas_autoscaling::ensure_gas_autoscaler_running(
+                    client.clone(),
+                    node,
+                    gas_cfg,
+                );
+            }
+        }
+    }
+
     // 6a. CSI VolumeSnapshot schedule (Validator only)
     if node.spec.node_type == NodeType::Validator {
         if let Some(ref snapshot_config) = node.spec.snapshot_schedule {
@@ -1652,6 +1693,7 @@ pub(crate) async fn apply_stellar_node(
                     .num_seconds();
                 if age < 15 {
                     info!("Skipping health polling for {}/{}, DB trigger recently updated status {}s ago", namespace, name, age);
+                    #[cfg(feature = "metrics")]
                     crate::controller::metrics::inc_api_polls_avoided(&namespace, &name);
                     skipped_poll = true;
                     // Assume node is healthy, use the reactively set ledger sequence
@@ -1672,6 +1714,63 @@ pub(crate) async fn apply_stellar_node(
         namespace, name, health_result.healthy, health_result.synced, health_result.message
     );
 
+    // 7a. Sync-state-driven resource scaling (Validator only)
+    //
+    // Queries the stellar-core /info endpoint to determine whether the node is
+    // "Catching up" or "Synced!" and applies the matching resource profile via
+    // an in-place pod patch (no pod restart required).
+    if let Some(scaling_config) = &node.spec.sync_state_scaling {
+        if scaling_config.enabled && node.spec.node_type == NodeType::Validator {
+            let sync_state =
+                sync_state_monitor::resolve_node_sync_state(client, node).await;
+
+            info!(
+                "Sync state for {}/{}: {}",
+                namespace, name, sync_state
+            );
+
+            // Persist the observed sync state to the CRD status.
+            {
+                let api: Api<StellarNode> = Api::namespaced(client.clone(), &namespace);
+                let profile_label = sync_state.to_string();
+                let patch = serde_json::json!({
+                    "status": {
+                        "syncState": sync_state,
+                        "syncScalingActiveProfile": profile_label,
+                    }
+                });
+                if let Err(e) = api
+                    .patch_status(
+                        &name,
+                        &PatchParams::apply("stellar-operator"),
+                        &Patch::Merge(&patch),
+                    )
+                    .await
+                {
+                    warn!("Failed to patch syncState status for {}/{}: {}", namespace, name, e);
+                }
+            }
+
+            apply_or_emit(
+                ctx,
+                node,
+                ActionType::Update,
+                "Sync-state resource scaling",
+                async {
+                    sync_scale::reconcile_sync_scaling(
+                        client,
+                        node,
+                        scaling_config,
+                        &sync_state,
+                    )
+                    .await?;
+                    Ok(())
+                },
+            )
+            .await?;
+        }
+    }
+
     // 7b. CVE scanning and automated patching
     if let Some(cve_config) = &node.spec.cve_handling {
         apply_or_emit(ctx, node, ActionType::Update, "CVE Handling", async {
@@ -1679,6 +1778,37 @@ pub(crate) async fn apply_stellar_node(
             Ok(())
         })
         .await?;
+    }
+
+    // 7c. History archive pruning (for validators with archives)
+    if node.spec.node_type == NodeType::Validator {
+        if let Some(pruning_policy) = &node.spec.pruning_policy {
+            if pruning_policy.enabled {
+                apply_or_emit(ctx, node, ActionType::Update, "Archive Pruning", async {
+                    match super::pruning_reconciler::reconcile_pruning(client, node).await {
+                        Ok(Some(result)) => {
+                            info!(
+                                "Archive pruning completed for {}/{}: {} deleted, {} retained",
+                                namespace, name, result.deleted_count, result.retained_count
+                            );
+                            super::pruning_reconciler::update_pruning_status(client, node, &result)
+                                .await?;
+                        }
+                        Ok(None) => {
+                            debug!("Pruning not scheduled to run for {}/{}", namespace, name);
+                        }
+                        Err(e) => {
+                            warn!(
+                                "Archive pruning failed for {}/{}: {}",
+                                namespace, name, e
+                            );
+                        }
+                    }
+                    Ok(())
+                })
+                .await?;
+            }
+        }
     }
 
     // 6. Trigger peer configuration reload for validators if healthy
@@ -2462,20 +2592,17 @@ async fn measure_canary_error_rate(
         .labels(&format!("app.kubernetes.io/instance={canary_name}"));
 
     let pods = pod_api.list(&lp).await.map_err(Error::KubeError)?;
-    let pod = pods
-        .items
-        .iter()
-        .find(|p| {
-            p.status
-                .as_ref()
-                .and_then(|s| s.conditions.as_ref())
-                .map(|conds| {
-                    conds
-                        .iter()
-                        .any(|c| c.type_ == "Ready" && c.status == "True")
-                })
-                .unwrap_or(false)
-        });
+    let pod = pods.items.iter().find(|p| {
+        p.status
+            .as_ref()
+            .and_then(|s| s.conditions.as_ref())
+            .map(|conds| {
+                conds
+                    .iter()
+                    .any(|c| c.type_ == "Ready" && c.status == "True")
+            })
+            .unwrap_or(false)
+    });
 
     let pod_ip = match pod.and_then(|p| p.status.as_ref()?.pod_ip.as_deref()) {
         Some(ip) => ip.to_string(),
@@ -3206,17 +3333,20 @@ async fn run_archive_checkpoint_verification(
     };
 
     // Update metrics
-    let node_type = format!("{:?}", node.spec.node_type);
-    let network = format!("{:?}", node.spec.network);
-    let hardware = hardware_generation_for_metrics(client, node).await;
-    metrics::set_archive_integrity_status(
-        &namespace,
-        &name,
-        &node_type,
-        &network,
-        &hardware,
-        all_healthy,
-    );
+    #[cfg(feature = "metrics")]
+    {
+        let node_type = format!("{:?}", node.spec.node_type);
+        let network = format!("{:?}", node.spec.network);
+        let hardware = hardware_generation_for_metrics(client, node).await;
+        metrics::set_archive_integrity_status(
+            &namespace,
+            &name,
+            &node_type,
+            &network,
+            &hardware,
+            all_healthy,
+        );
+    }
 
     // Update status conditions
     let mut status = node.status.clone().unwrap_or_default();

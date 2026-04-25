@@ -14,13 +14,13 @@ struct PrometheusResponse {
 #[derive(Debug, Deserialize)]
 struct PrometheusData {
     #[serde(rename = "resultType")]
-    result_type: String,
+    _result_type: String,
     result: Vec<PrometheusResult>,
 }
 
 #[derive(Debug, Deserialize)]
 struct PrometheusResult {
-    metric: std::collections::HashMap<String, String>,
+    _metric: std::collections::HashMap<String, String>,
     value: (f64, String),
 }
 

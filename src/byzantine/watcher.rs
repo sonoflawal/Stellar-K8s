@@ -22,7 +22,7 @@ use axum::http::StatusCode;
 use axum::response::IntoResponse;
 use axum::routing::get;
 use axum::Router;
-use once_cell::sync::Lazy;
+
 use prometheus_client::encoding::text::encode;
 use prometheus_client::encoding::EncodeLabelSet;
 use prometheus_client::metrics::counter::Counter;
@@ -97,6 +97,12 @@ pub struct WatcherMetrics {
     pub watcher_info: Family<WatcherLabels, Gauge<i64, AtomicI64>>,
 }
 
+impl Default for WatcherMetrics {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl WatcherMetrics {
     pub fn new() -> Self {
         let mut registry = Registry::default();
@@ -149,6 +155,12 @@ impl WatcherMetrics {
             last_poll_timestamp_seconds,
             watcher_info,
         }
+    }
+}
+
+impl Default for WatcherMetrics {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
@@ -260,10 +272,7 @@ pub async fn run_watcher(config: WatcherConfig) -> Result<()> {
 // ---------------------------------------------------------------------------
 
 /// Poll `GET /info` on the Stellar Core HTTP endpoint and return an observation.
-async fn poll_stellar_core(
-    client: &Client,
-    endpoint: &str,
-) -> Result<(u64, String, bool, String)> {
+async fn poll_stellar_core(client: &Client, endpoint: &str) -> Result<(u64, String, bool, String)> {
     let url = format!("{}/info", endpoint.trim_end_matches('/'));
     debug!("Polling Stellar Core at {}", url);
 

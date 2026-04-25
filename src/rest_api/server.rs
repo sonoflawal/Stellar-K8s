@@ -20,13 +20,13 @@ use tracing::info;
 use crate::controller::ControllerState;
 use crate::{Error, Result};
 
-use super::auth;
-use super::job_handlers;
 use super::audit_handlers;
+use super::auth;
 use super::custom_metrics;
 use super::dashboard_handlers;
 use super::handlers;
 use super::health_summary;
+use super::job_handlers;
 
 /// Build a rustls ServerConfig from PEM data (cert, key, CA for client verification).
 /// Used for initial server setup and after certificate rotation to reload without restart.

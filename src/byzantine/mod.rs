@@ -79,4 +79,5 @@
 
 pub mod aggregator;
 pub mod types;
+#[cfg(all(feature = "rest-api", feature = "metrics"))]
 pub mod watcher;

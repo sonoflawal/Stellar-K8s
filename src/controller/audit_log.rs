@@ -69,6 +69,10 @@ pub enum AdminAction {
     CvePatch,
     /// A webhook endpoint was registered.
     WebhookRegister,
+    /// Triggered when the operator's runtime configuration is updated.
+    ConfigUpdate,
+    /// Triggered when the operator's runtime configuration is deleted.
+    ConfigDelete,
     /// A webhook endpoint was removed.
     WebhookUnregister,
     /// A background job was manually triggered.
@@ -99,15 +103,23 @@ pub struct AuditEntry {
     pub action: AdminAction,
     /// Identity of the actor (Kubernetes service account, token subject, etc.).
     pub actor: String,
+    /// Optional metadata about the actor (groups, IP, etc.).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub actor_metadata: Option<serde_json::Value>,
     /// The resource that was affected.
     pub resource: String,
     /// Namespace in which the action occurred (may be empty for cluster-scoped actions).
     pub namespace: String,
-    /// Optional JSON blob with additional context (before/after diffs, parameters, etc.).
+    /// Optional JSON blob with additional context (parameters, etc.).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub details: Option<String>,
+    /// Optional JSON patch or diff showing what changed.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub diff: Option<serde_json::Value>,
     /// Whether the action succeeded.
     pub success: bool,
     /// Error message, if `success` is `false`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub error: Option<String>,
 }
 
@@ -125,9 +137,11 @@ impl AuditEntry {
             timestamp: Utc::now(),
             action,
             actor: actor.into(),
+            actor_metadata: None,
             resource: resource.into(),
             namespace: namespace.into(),
             details: details.map(|s| s.to_string()),
+            diff: None,
             success: true,
             error: None,
         }
@@ -146,12 +160,26 @@ impl AuditEntry {
             timestamp: Utc::now(),
             action,
             actor: actor.into(),
+            actor_metadata: None,
             resource: resource.into(),
             namespace: namespace.into(),
             details: None,
+            diff: None,
             success: false,
             error: Some(error.into()),
         }
+    }
+
+    /// Set the diff for this entry.
+    pub fn with_diff(mut self, diff: serde_json::Value) -> Self {
+        self.diff = Some(diff);
+        self
+    }
+
+    /// Set the actor metadata for this entry.
+    pub fn with_metadata(mut self, metadata: serde_json::Value) -> Self {
+        self.actor_metadata = Some(metadata);
+        self
     }
 }
 
@@ -200,9 +228,9 @@ impl AuditLog {
     ) -> Vec<AuditEntry> {
         let entries = self.entries.read().unwrap();
         let iter = entries.iter().rev().filter(|e| {
-            namespace.map_or(true, |ns| e.namespace == ns)
-                && resource.map_or(true, |r| e.resource.contains(r))
-                && actor.map_or(true, |a| e.actor == a)
+            namespace.is_none_or(|ns| e.namespace == ns)
+                && resource.is_none_or(|r| e.resource.contains(r))
+                && actor.is_none_or(|a| e.actor == a)
         });
 
         if limit == 0 {
@@ -253,8 +281,18 @@ mod tests {
         let log = AuditLog::new();
         assert_eq!(log.count(), 0);
 
-        log.record(make_entry(AdminAction::SetLogLevel, "stellar-system", "operator", "admin"));
-        log.record(make_entry(AdminAction::NodeCreate, "default", "my-node", "user1"));
+        log.record(make_entry(
+            AdminAction::SetLogLevel,
+            "stellar-system",
+            "operator",
+            "admin",
+        ));
+        log.record(make_entry(
+            AdminAction::NodeCreate,
+            "default",
+            "my-node",
+            "user1",
+        ));
         assert_eq!(log.count(), 2);
 
         let all = log.list(None, None, None, 0);
@@ -266,8 +304,18 @@ mod tests {
     #[test]
     fn test_filter_by_namespace() {
         let log = AuditLog::new();
-        log.record(make_entry(AdminAction::NodeCreate, "ns-a", "node-a", "user"));
-        log.record(make_entry(AdminAction::NodeDelete, "ns-b", "node-b", "user"));
+        log.record(make_entry(
+            AdminAction::NodeCreate,
+            "ns-a",
+            "node-a",
+            "user",
+        ));
+        log.record(make_entry(
+            AdminAction::NodeDelete,
+            "ns-b",
+            "node-b",
+            "user",
+        ));
 
         let ns_a = log.list(Some("ns-a"), None, None, 0);
         assert_eq!(ns_a.len(), 1);
