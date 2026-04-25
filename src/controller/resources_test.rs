@@ -541,6 +541,217 @@ peer-2 = "G..."
         );
     }
 
+    // -----------------------------------------------------------------------
+    // Sidecar injection tests (#507)
+    // -----------------------------------------------------------------------
+
+    use k8s_openapi::api::core::v1::{Container, VolumeMount};
+
+    fn make_sidecar(name: &str) -> Container {
+        Container {
+            name: name.to_string(),
+            image: Some(format!("example/{name}:latest")),
+            ..Default::default()
+        }
+    }
+
+    fn make_sidecar_with_volume_mount(name: &str, volume: &str, mount_path: &str) -> Container {
+        Container {
+            name: name.to_string(),
+            image: Some(format!("example/{name}:latest")),
+            volume_mounts: Some(vec![VolumeMount {
+                name: volume.to_string(),
+                mount_path: mount_path.to_string(),
+                read_only: Some(true),
+                ..Default::default()
+            }]),
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn test_sidecar_injected_into_statefulset() {
+        let mut node = make_node(NodeType::Validator);
+        node.spec.sidecars = Some(vec![make_sidecar("log-forwarder")]);
+
+        let sts = build_statefulset_for_test(&node);
+        let containers = sts
+            .spec
+            .unwrap()
+            .template
+            .spec
+            .unwrap()
+            .containers;
+
+        assert!(
+            containers.iter().any(|c| c.name == "log-forwarder"),
+            "sidecar 'log-forwarder' must be present in StatefulSet pod spec"
+        );
+    }
+
+    #[test]
+    fn test_sidecar_injected_into_deployment() {
+        let mut node = make_node(NodeType::Horizon);
+        node.spec.sidecars = Some(vec![make_sidecar("metrics-proxy")]);
+
+        let deploy = build_deployment_for_test(&node);
+        let containers = deploy
+            .spec
+            .unwrap()
+            .template
+            .spec
+            .unwrap()
+            .containers;
+
+        assert!(
+            containers.iter().any(|c| c.name == "metrics-proxy"),
+            "sidecar 'metrics-proxy' must be present in Deployment pod spec"
+        );
+    }
+
+    #[test]
+    fn test_multiple_sidecars_all_injected() {
+        let mut node = make_node(NodeType::Validator);
+        node.spec.sidecars = Some(vec![
+            make_sidecar("log-forwarder"),
+            make_sidecar("metrics-proxy"),
+            make_sidecar("custom-proxy"),
+        ]);
+
+        let sts = build_statefulset_for_test(&node);
+        let containers = sts
+            .spec
+            .unwrap()
+            .template
+            .spec
+            .unwrap()
+            .containers;
+
+        for name in &["log-forwarder", "metrics-proxy", "custom-proxy"] {
+            assert!(
+                containers.iter().any(|c| c.name.as_str() == *name),
+                "sidecar '{name}' must be present in pod spec"
+            );
+        }
+    }
+
+    #[test]
+    fn test_no_sidecars_does_not_add_extra_containers() {
+        let node = make_node(NodeType::Validator);
+        // sidecars is None by default in minimal_spec
+
+        let sts = build_statefulset_for_test(&node);
+        let containers = sts
+            .spec
+            .unwrap()
+            .template
+            .spec
+            .unwrap()
+            .containers;
+
+        // Only the main stellar-node container should be present
+        assert_eq!(
+            containers.len(),
+            1,
+            "no sidecars configured — only the main container should be present"
+        );
+    }
+
+    #[test]
+    fn test_sidecar_can_mount_shared_data_volume() {
+        let mut node = make_node(NodeType::Validator);
+        node.spec.sidecars = Some(vec![make_sidecar_with_volume_mount(
+            "log-forwarder",
+            "data",
+            "/stellar-data",
+        )]);
+
+        let sts = build_statefulset_for_test(&node);
+        let pod_spec = sts.spec.unwrap().template.spec.unwrap();
+
+        // The "data" volume must exist in the pod spec
+        let volumes = pod_spec.volumes.expect("pod spec must have volumes");
+        assert!(
+            volumes.iter().any(|v| v.name == "data"),
+            "shared 'data' volume must be defined in pod spec"
+        );
+
+        // The sidecar must reference it
+        let sidecar = pod_spec
+            .containers
+            .iter()
+            .find(|c| c.name == "log-forwarder")
+            .expect("log-forwarder sidecar must be present");
+
+        let mounts = sidecar
+            .volume_mounts
+            .as_ref()
+            .expect("sidecar must have volume mounts");
+        assert!(
+            mounts.iter().any(|m| m.name == "data"),
+            "sidecar must mount the 'data' volume"
+        );
+    }
+
+    #[test]
+    fn test_sidecar_can_mount_shared_config_volume() {
+        let mut node = make_node(NodeType::Validator);
+        node.spec.sidecars = Some(vec![make_sidecar_with_volume_mount(
+            "config-watcher",
+            "config",
+            "/stellar-config",
+        )]);
+
+        let sts = build_statefulset_for_test(&node);
+        let pod_spec = sts.spec.unwrap().template.spec.unwrap();
+
+        let volumes = pod_spec.volumes.expect("pod spec must have volumes");
+        assert!(
+            volumes.iter().any(|v| v.name == "config"),
+            "shared 'config' volume must be defined in pod spec"
+        );
+
+        let sidecar = pod_spec
+            .containers
+            .iter()
+            .find(|c| c.name == "config-watcher")
+            .expect("config-watcher sidecar must be present");
+
+        let mounts = sidecar
+            .volume_mounts
+            .as_ref()
+            .expect("sidecar must have volume mounts");
+        assert!(
+            mounts.iter().any(|m| m.name == "config"),
+            "sidecar must mount the 'config' volume"
+        );
+    }
+
+    #[test]
+    fn test_main_container_is_first_in_pod_spec() {
+        // The main stellar-node container must always be index 0 regardless of sidecars
+        let mut node = make_node(NodeType::Validator);
+        node.spec.sidecars = Some(vec![make_sidecar("log-forwarder")]);
+
+        let sts = build_statefulset_for_test(&node);
+        let containers = sts
+            .spec
+            .unwrap()
+            .template
+            .spec
+            .unwrap()
+            .containers;
+
+        assert_ne!(
+            containers[0].name, "log-forwarder",
+            "main container must come before sidecars"
+        );
+        assert_eq!(
+            containers.last().unwrap().name,
+            "log-forwarder",
+            "sidecar must be appended after the main container"
+        );
+    }
     #[test]
     fn test_network_policy_stellar_native_egress() {
         let mut node = make_node(NodeType::Validator);
