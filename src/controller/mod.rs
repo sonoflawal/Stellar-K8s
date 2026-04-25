@@ -67,8 +67,6 @@ mod archive_health;
 pub mod archive_prune;
 pub mod audit;
 pub mod audit_log;
-pub mod audit_sink;
-pub mod audit_worker;
 pub mod background_jobs;
 pub mod captive_core;
 pub mod chaos_engineering;

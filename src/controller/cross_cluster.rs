@@ -485,7 +485,7 @@ pub struct PeerLatencyStatus {
 mod tests {
     use super::*;
     use crate::crd::{
-        types::{NodeType, ResourceRequirements, ResourceSpec, StellarNetwork, StorageConfig},
+        types::{NodeType, StellarNetwork},
         CrossClusterConfig, PeerClusterConfig, StellarNode, StellarNodeSpec,
     };
     use k8s_openapi::apimachinery::pkg::apis::meta::v1::ObjectMeta;

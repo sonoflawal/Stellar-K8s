@@ -158,6 +158,12 @@ impl WatcherMetrics {
     }
 }
 
+impl Default for WatcherMetrics {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Watcher state shared between the poll loop and the HTTP server
 // ---------------------------------------------------------------------------

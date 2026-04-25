@@ -10,10 +10,11 @@
 #[cfg(test)]
 mod tests {
     use super::super::reconciler::*;
+    use crate::controller::{AuditLog, JobRegistry};
     use crate::crd::{
-        CaptiveCoreConfig, Condition, HorizonConfig, ManagedDatabaseConfig, NodeType,
-        ResourceRequirements, ResourceSpec, SorobanConfig, StellarNetwork, StellarNode,
-        StellarNodeSpec, StorageConfig, ValidatorConfig,
+        CaptiveCoreConfig, Condition, HorizonConfig, NodeType, ResourceRequirements, ResourceSpec,
+        SorobanConfig, StellarNetwork, StellarNode, StellarNodeSpec, StorageConfig,
+        ValidatorConfig,
     };
     use crate::error::Error;
     use kube::api::ObjectMeta;
@@ -85,6 +86,9 @@ VALIDATORS=["VALIDATOR1", "VALIDATOR2"]"#
                     kms_config: None,
                     vl_source: None,
                     hsm_config: None,
+                    external_dns: None,
+                    known_peers: None,
+                    quorum_optimization: None,
                     ..Default::default()
                 }),
                 horizon_config: None,
@@ -124,6 +128,11 @@ VALIDATORS=["VALIDATOR1", "VALIDATOR2"]"#
                 vpa_config: None,
                 custom_network_passphrase: None,
                 nat_traversal: None,
+                cross_cloud_failover: None,
+                hitless_upgrade: None,
+                probes: None,
+                proximity_aware: false,
+                replication_config: None,
                 ..Default::default()
             },
             status: None,
@@ -361,6 +370,8 @@ VALIDATORS=["VALIDATOR1", "VALIDATOR2"]"#
             log_reload_handle: make_reload_handle(),
             log_level_expires_at: Arc::new(tokio::sync::Mutex::new(None)),
             last_event_received: Arc::new(std::sync::atomic::AtomicU64::new(0)),
+            job_registry: Arc::new(JobRegistry::new()),
+            audit_log: Arc::new(AuditLog::new()),
             job_registry: Arc::new(crate::controller::background_jobs::JobRegistry::new()),
             audit_log: Arc::new(crate::controller::audit_log::AuditLog::new()),
             oidc_config: None,
@@ -406,6 +417,8 @@ VALIDATORS=["VALIDATOR1", "VALIDATOR2"]"#
             log_reload_handle: make_reload_handle(),
             log_level_expires_at: Arc::new(tokio::sync::Mutex::new(None)),
             last_event_received: Arc::new(std::sync::atomic::AtomicU64::new(0)),
+            job_registry: Arc::new(JobRegistry::new()),
+            audit_log: Arc::new(AuditLog::new()),
             job_registry: Arc::new(crate::controller::background_jobs::JobRegistry::new()),
             audit_log: Arc::new(crate::controller::audit_log::AuditLog::new()),
             oidc_config: None,
@@ -450,6 +463,8 @@ VALIDATORS=["VALIDATOR1", "VALIDATOR2"]"#
             log_level_expires_at: Arc::new(tokio::sync::Mutex::new(None)),
             log_reload_handle: make_reload_handle(),
             last_event_received: Arc::new(std::sync::atomic::AtomicU64::new(0)),
+            job_registry: Arc::new(JobRegistry::new()),
+            audit_log: Arc::new(AuditLog::new()),
             job_registry: Arc::new(crate::controller::background_jobs::JobRegistry::new()),
             audit_log: Arc::new(crate::controller::audit_log::AuditLog::new()),
             oidc_config: None,
@@ -686,6 +701,8 @@ VALIDATORS=["VALIDATOR1", "VALIDATOR2"]"#
             log_reload_handle: make_reload_handle(),
             log_level_expires_at: Arc::new(tokio::sync::Mutex::new(None)),
             last_event_received: Arc::new(std::sync::atomic::AtomicU64::new(0)),
+            job_registry: Arc::new(JobRegistry::new()),
+            audit_log: Arc::new(AuditLog::new()),
             job_registry: Arc::new(crate::controller::background_jobs::JobRegistry::new()),
             audit_log: Arc::new(crate::controller::audit_log::AuditLog::new()),
             oidc_config: None,
@@ -726,6 +743,8 @@ VALIDATORS=["VALIDATOR1", "VALIDATOR2"]"#
             log_reload_handle: make_reload_handle(),
             log_level_expires_at: Arc::new(tokio::sync::Mutex::new(None)),
             last_event_received: Arc::new(std::sync::atomic::AtomicU64::new(0)),
+            job_registry: Arc::new(JobRegistry::new()),
+            audit_log: Arc::new(AuditLog::new()),
             job_registry: Arc::new(crate::controller::background_jobs::JobRegistry::new()),
             audit_log: Arc::new(crate::controller::audit_log::AuditLog::new()),
             oidc_config: None,

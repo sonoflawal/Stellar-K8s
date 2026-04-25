@@ -74,6 +74,7 @@ use super::oci_snapshot;
 use super::operator_config::{hardcoded_defaults, OperatorConfig};
 use super::peer_discovery;
 use super::pss;
+use super::quorum;
 use super::remediation;
 use super::resources;
 use super::service_mesh;

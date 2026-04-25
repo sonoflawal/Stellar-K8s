@@ -8,8 +8,6 @@ use std::time::Duration;
 
 use futures::StreamExt;
 use k8s_openapi::api::core::v1::{Node, Pod};
-use k8s_openapi::api::policy::v1::Eviction;
-use k8s_openapi::apimachinery::pkg::apis::meta::v1::ObjectMeta;
 use kube::{
     api::{Api, EvictParams, ListParams},
     runtime::{
@@ -56,7 +54,7 @@ impl NodeDrainOrchestrator {
         let mut stream = watcher::watcher(nodes, wc).boxed();
         while let Some(event) = stream.next().await {
             match event {
-                Ok(watcher::Event::Apply(node)) => {
+                Ok(watcher::Event::Apply(node)) | Ok(watcher::Event::InitApply(node)) => {
                     if self.is_node_cordoned(&node) {
                         self.handle_cordoned_node(node).await?;
                     }
@@ -64,10 +62,7 @@ impl NodeDrainOrchestrator {
                 Ok(watcher::Event::Delete(node)) => {
                     debug!("Node {} deleted, skipping", node.name_any());
                 }
-                Ok(watcher::Event::Init) => {
-                    info!("Node watcher initialized, performing initial scan");
-                }
-                Ok(_) => {}
+                Ok(watcher::Event::Init) | Ok(watcher::Event::InitDone) => {}
                 Err(e) => error!("Node watcher error: {}", e),
             }
         }
@@ -148,18 +143,10 @@ impl NodeDrainOrchestrator {
         info!("Pod {} is caught up, proceeding with eviction", pod_name);
 
         // 2. Coordinate with PDBs (Kubernetes Eviction API handles this)
-        let _eviction = Eviction {
-            metadata: ObjectMeta {
-                name: Some(pod_name.clone()),
-                namespace: Some(namespace.clone()),
-                ..Default::default()
-            },
-            delete_options: None,
-        };
+        let evict_params = EvictParams::default();
 
         let pod_api: Api<Pod> = Api::namespaced(self.client.clone(), &namespace);
-        let ep = EvictParams::default();
-        match pod_api.evict(&pod_name, &ep).await {
+        match pod_api.evict(&pod_name, &evict_params).await {
             Ok(_) => {
                 info!("Successfully triggered eviction for pod {}", pod_name);
                 recorder

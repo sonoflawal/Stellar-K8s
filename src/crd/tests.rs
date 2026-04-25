@@ -67,7 +67,6 @@ mod stellar_node_spec_validation {
         }
     }
 
-    /// Helper to create a minimal valid StellarNodeSpec for Horizon
     fn valid_horizon_spec() -> StellarNodeSpec {
         StellarNodeSpec {
             node_type: NodeType::Horizon,
@@ -125,7 +124,6 @@ mod stellar_node_spec_validation {
         }
     }
 
-    /// Helper to create a minimal valid StellarNodeSpec for SorobanRpc
     fn valid_soroban_spec() -> StellarNodeSpec {
         StellarNodeSpec {
             node_type: NodeType::SorobanRpc,

@@ -763,7 +763,7 @@ peer-2 = "G..."
         let egress = spec.egress.expect("egress rules must be present");
 
         // 1. DNS egress
-        let has_dns = egress.iter().any(|rule| {
+
             rule.ports
                 .as_ref()
                 .is_some_and(|ports| {

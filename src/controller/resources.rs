@@ -38,13 +38,14 @@ use kube::api::{Api, DeleteParams, Patch, PatchParams, PostParams};
 use kube::{Client, Resource, ResourceExt};
 use tracing::{info, instrument, warn};
 
-use crate::crd::types::PodAntiAffinityStrength;
+use crate::crd::types::{PodAntiAffinityStrength, ReplicationRole};
 use crate::crd::{
     BackupConfiguration, BarmanObjectStore, BootstrapConfiguration, Cluster, ClusterSpec,
-    HistoryMode, HsmProvider, IngressConfig, InitDbConfiguration, KeySource, ManagedDatabaseConfig,
-    MonitoringConfiguration, NetworkPolicyConfig, NodeType, PgBouncerSpec, Pooler, PoolerCluster,
-    PoolerSpec, PostgresConfiguration, S3Credentials, SecretKeySelector as CnpgSecretKeySelector,
-    StellarNode, StellarNodeSpec, StorageConfiguration, WalBackupConfiguration,
+    ExternalCluster, HistoryMode, HsmProvider, IngressConfig, InitDbConfiguration, KeySource,
+    ManagedDatabaseConfig, MonitoringConfiguration, NetworkPolicyConfig, NodeType, PgBouncerSpec,
+    Pooler, PoolerCluster, PoolerSpec, PostgresConfiguration, RecoveryConfiguration,
+    ReplicaConfiguration, S3Credentials, SecretKeySelector as CnpgSecretKeySelector, StellarNode,
+    StellarNodeSpec, StorageConfiguration, WalBackupConfiguration,
 };
 use crate::error::{Error, Result};
 use crate::scheduler::scoring::extract_peer_names_from_toml;
@@ -650,11 +651,19 @@ fn build_deployment(node: &StellarNode, enable_mtls: bool) -> Deployment {
     let labels = standard_labels(node);
     let name = node.name_any();
 
-    let replicas = if node.spec.suspended {
+    let mut replicas = if node.spec.suspended {
         0
     } else {
         node.spec.replicas
     };
+
+    // If node is Passive in a replication setup, scale to 0 to prevent DB write conflicts
+    // while the managed database is in read-only replica mode.
+    if let Some(repl_cfg) = &node.spec.replication_config {
+        if repl_cfg.enabled && repl_cfg.role == ReplicationRole::Passive {
+            replicas = 0;
+        }
+    }
 
     Deployment {
         metadata: merge_resource_meta(
@@ -735,7 +744,15 @@ fn build_statefulset(
     let labels = standard_labels(node);
     let name = node.name_any();
 
-    let replicas = if node.spec.suspended { 0 } else { 1 };
+    let mut replicas = if node.spec.suspended { 0 } else { 1 };
+
+    // If node is Passive in a replication setup, scale to 0 to prevent DB write conflicts
+    // while the managed database is in read-only replica mode.
+    if let Some(repl_cfg) = &node.spec.replication_config {
+        if repl_cfg.enabled && repl_cfg.role == ReplicationRole::Passive {
+            replicas = 0;
+        }
+    }
 
     let annotations = node.spec.storage.annotations.clone().unwrap_or_default();
 
@@ -1076,6 +1093,8 @@ fn build_cnpg_cluster(node: &StellarNode, config: &ManagedDatabaseConfig) -> Clu
                     p
                 },
             }),
+            external_clusters: None,
+            replica: None,
             storage: StorageConfiguration {
                 size: config.storage.size.clone(),
                 storage_class: Some(config.storage.storage_class.clone()),
@@ -1108,6 +1127,7 @@ fn build_cnpg_cluster(node: &StellarNode, config: &ManagedDatabaseConfig) -> Clu
                     owner: "stellar".to_string(),
                     secret: None,
                 }),
+                recovery: None,
             }),
             monitoring: Some(MonitoringConfiguration {
                 enable_pod_monitor: true,
@@ -1120,6 +1140,49 @@ fn build_cnpg_cluster(node: &StellarNode, config: &ManagedDatabaseConfig) -> Clu
             "ghcr.io/cloudnative-pg/postgresql:{}",
             config.postgres_version
         ));
+    }
+
+    // Handle multi-region replication
+    if let Some(repl_cfg) = &node.spec.replication_config {
+        if repl_cfg.enabled && repl_cfg.role == ReplicationRole::Passive {
+            let remote_name = format!("{}-primary", repl_cfg.remote_cluster_id);
+
+            // Define external cluster pointing to the primary in the remote region
+            let external_cluster = ExternalCluster {
+                name: remote_name.clone(),
+                connection_parameters: {
+                    let mut p = BTreeMap::new();
+                    p.insert(
+                        "host".to_string(),
+                        format!("{}.{}.svc", node.name_any(), repl_cfg.remote_cluster_id),
+                    );
+                    p.insert("user".to_string(), "stellar".to_string());
+                    p.insert("dbname".to_string(), "stellar".to_string());
+                    p.insert("sslmode".to_string(), "require".to_string());
+                    p
+                },
+                password: CnpgSecretKeySelector {
+                    name: format!("{}-app", node.name_any()),
+                    key: "password".to_string(),
+                },
+            };
+
+            cluster.spec.external_clusters = Some(vec![external_cluster]);
+
+            // Configure bootstrap to recover from the external cluster
+            if let Some(bootstrap) = &mut cluster.spec.bootstrap {
+                bootstrap.initdb = None; // Cannot use initdb with recovery
+                bootstrap.recovery = Some(RecoveryConfiguration {
+                    source: remote_name.clone(),
+                });
+            }
+
+            // Set as replica
+            cluster.spec.replica = Some(ReplicaConfiguration {
+                enabled: true,
+                source: remote_name,
+            });
+        }
     }
 
     cluster
@@ -3639,6 +3702,29 @@ pub(crate) fn build_network_policy(
             },
             &node.spec.resource_meta,
         ),
+        spec: Some(NetworkPolicySpec {
+            pod_selector: LabelSelector {
+                match_labels: Some(BTreeMap::from([
+                    ("app.kubernetes.io/instance".to_string(), node.name_any()),
+                    (
+                        "app.kubernetes.io/name".to_string(),
+                        "stellar-node".to_string(),
+                    ),
+                ])),
+                ..Default::default()
+            },
+            // Enforce both Ingress and Egress so the egress deny-by-default takes effect.
+            policy_types: Some(vec!["Ingress".to_string(), "Egress".to_string()]),
+            ingress: if ingress_rules.is_empty() {
+                None
+            } else {
+                Some(ingress_rules)
+            },
+            egress: if egress_rules.is_empty() {
+                None
+            } else {
+                Some(egress_rules)
+            },
         spec: Some({
             NetworkPolicySpec {
                 pod_selector: LabelSelector {

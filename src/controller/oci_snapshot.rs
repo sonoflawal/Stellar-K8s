@@ -439,8 +439,8 @@ pub async fn is_snapshot_job_done(
 mod tests {
     use super::*;
     use crate::crd::{
-        HistoryMode, NodeType, OciSnapshotConfig, ResourceRequirements, RolloutStrategy,
-        StellarNetwork, StellarNode, StellarNodeSpec, StorageConfig, TagStrategy, ValidatorConfig,
+        HistoryMode, NodeType, OciSnapshotConfig, ResourceRequirements, StellarNetwork,
+        StellarNode, StellarNodeSpec, StorageConfig, TagStrategy, ValidatorConfig,
     };
 
     fn test_cfg(tag_strategy: TagStrategy, fixed_tag: Option<&str>) -> OciSnapshotConfig {
@@ -485,8 +485,6 @@ mod tests {
                     hsm_config: None,
                     ..Default::default()
                 }),
-                horizon_config: None,
-                soroban_config: None,
                 replicas: 1,
                 min_available: None,
                 max_unavailable: None,
