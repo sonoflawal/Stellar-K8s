@@ -64,6 +64,7 @@ fn default_storage() -> StorageConfig {
         retention_policy: Default::default(),
         annotations: None,
         node_affinity: None,
+        ..Default::default()
     }
 }
 
@@ -87,6 +88,7 @@ fn base_validator_spec() -> StellarNodeSpec {
             kms_config: None,
             vl_source: None,
             hsm_config: None,
+                    ..Default::default()
         }),
         horizon_config: None,
         soroban_config: None,
@@ -124,6 +126,7 @@ fn base_validator_spec() -> StellarNodeSpec {
         pod_anti_affinity: Default::default(),
         label_propagation: None,
         sidecars: None,
+        ..Default::default()
     }
 }
 
@@ -180,6 +183,7 @@ fn base_horizon_spec() -> StellarNodeSpec {
         pod_anti_affinity: Default::default(),
         label_propagation: None,
         sidecars: None,
+        ..Default::default()
     }
 }
 
@@ -236,6 +240,7 @@ fn base_soroban_spec() -> StellarNodeSpec {
         pod_anti_affinity: Default::default(),
         label_propagation: None,
         sidecars: None,
+        ..Default::default()
     }
 }
 
@@ -329,6 +334,11 @@ async fn reconcile_with_failing_client_never_panics_and_converges() {
         log_reload_handle: make_reload_handle(),
         log_level_expires_at: std::sync::Arc::new(tokio::sync::Mutex::new(None)),
         last_event_received: std::sync::Arc::new(std::sync::atomic::AtomicU64::new(0)),
+        retry_budget_retriable_secs: 5,
+        retry_budget_nonretriable_secs: 300,
+        retry_budget_max_attempts: 10,
+        job_registry: std::sync::Arc::new(Default::default()),
+        audit_log: std::sync::Arc::new(Default::default()),
         oidc_config: None,
     });
     let node = make_node(

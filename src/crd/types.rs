@@ -729,7 +729,7 @@ pub struct SecretKeyRef {
 }
 
 /// Ingress configuration
-#[derive(Clone, Debug, Deserialize, Serialize, JsonSchema)]
+#[derive(Clone, Debug, Default, Deserialize, Serialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct IngressConfig {
     #[serde(skip_serializing_if = "Option::is_none")]

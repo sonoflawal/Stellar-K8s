@@ -215,10 +215,8 @@ fn test_kubectl_dry_run_passthrough_for_readonly_commands() {
     let action: Option<String> = None; // simulates List / Status / Events
     let mut intercepted = false;
 
-    if dry_run {
-        if action.is_some() {
-            intercepted = true;
-        }
+    if dry_run && action.is_some() {
+        intercepted = true;
     }
 
     assert!(

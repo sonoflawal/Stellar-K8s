@@ -27,45 +27,10 @@ mod stellar_node_spec_validation {
             horizon_config: None,
             soroban_config: None,
             replicas: 1,
-            min_available: None,
-            max_unavailable: None,
-            suspended: false,
-            alerting: false,
-            database: None,
-            managed_database: None,
-            autoscaling: None,
-            ingress: None,
-            load_balancer: None,
-            global_discovery: None,
-            cross_cluster: None,
-            strategy: Default::default(),
-            maintenance_mode: false,
-            network_policy: None,
-            dr_config: None,
-            pod_anti_affinity: Default::default(),
-            placement: Default::default(),
-            topology_spread_constraints: None,
-            cve_handling: None,
-            snapshot_schedule: None,
-            restore_from_snapshot: None,
-            read_replica_config: None,
-            db_maintenance_config: None,
-            oci_snapshot: None,
-            service_mesh: None,
-            forensic_snapshot: None,
-            label_propagation: None,
-            resource_meta: None,
-            vpa_config: None,
-            read_pool_endpoint: None,
-            sidecars: None,
-            custom_network_passphrase: None,
-            nat_traversal: None,
-            cross_cloud_failover: None,
-            hitless_upgrade: None,
+            ..Default::default()
         }
     }
 
-    /// Helper to create a minimal valid StellarNodeSpec for Horizon
     fn valid_horizon_spec() -> StellarNodeSpec {
         StellarNodeSpec {
             node_type: NodeType::Horizon,
@@ -83,45 +48,10 @@ mod stellar_node_spec_validation {
             }),
             soroban_config: None,
             replicas: 2,
-            min_available: None,
-            max_unavailable: None,
-            suspended: false,
-            alerting: false,
-            database: None,
-            managed_database: None,
-            autoscaling: None,
-            ingress: None,
-            load_balancer: None,
-            global_discovery: None,
-            cross_cluster: None,
-            strategy: Default::default(),
-            maintenance_mode: false,
-            network_policy: None,
-            dr_config: None,
-            pod_anti_affinity: Default::default(),
-            placement: Default::default(),
-            topology_spread_constraints: None,
-            cve_handling: None,
-            snapshot_schedule: None,
-            restore_from_snapshot: None,
-            read_replica_config: None,
-            db_maintenance_config: None,
-            oci_snapshot: None,
-            service_mesh: None,
-            forensic_snapshot: None,
-            label_propagation: None,
-            resource_meta: None,
-            vpa_config: None,
-            read_pool_endpoint: None,
-            sidecars: None,
-            custom_network_passphrase: None,
-            nat_traversal: None,
-            cross_cloud_failover: None,
-            hitless_upgrade: None,
+            ..Default::default()
         }
     }
 
-    /// Helper to create a minimal valid StellarNodeSpec for SorobanRpc
     fn valid_soroban_spec() -> StellarNodeSpec {
         StellarNodeSpec {
             node_type: NodeType::SorobanRpc,
@@ -137,41 +67,7 @@ mod stellar_node_spec_validation {
                 ..Default::default()
             }),
             replicas: 2,
-            min_available: None,
-            max_unavailable: None,
-            suspended: false,
-            alerting: false,
-            database: None,
-            managed_database: None,
-            autoscaling: None,
-            ingress: None,
-            load_balancer: None,
-            global_discovery: None,
-            cross_cluster: None,
-            strategy: Default::default(),
-            maintenance_mode: false,
-            network_policy: None,
-            dr_config: None,
-            pod_anti_affinity: Default::default(),
-            placement: Default::default(),
-            topology_spread_constraints: None,
-            cve_handling: None,
-            snapshot_schedule: None,
-            restore_from_snapshot: None,
-            read_replica_config: None,
-            db_maintenance_config: None,
-            oci_snapshot: None,
-            service_mesh: None,
-            forensic_snapshot: None,
-            label_propagation: None,
-            resource_meta: None,
-            vpa_config: None,
-            read_pool_endpoint: None,
-            sidecars: None,
-            custom_network_passphrase: None,
-            nat_traversal: None,
-            cross_cloud_failover: None,
-            hitless_upgrade: None,
+            ..Default::default()
         }
     }
 
@@ -301,6 +197,7 @@ mod stellar_node_spec_validation {
             cert_manager_issuer: None,
             cert_manager_cluster_issuer: None,
             annotations: None,
+            ..Default::default()
         });
 
         let result = spec.validate();
@@ -460,6 +357,7 @@ mod stellar_node_spec_validation {
             cert_manager_issuer: None,
             cert_manager_cluster_issuer: None,
             annotations: None,
+            ..Default::default()
         });
 
         assert!(spec.validate().is_ok());
@@ -475,6 +373,7 @@ mod stellar_node_spec_validation {
             cert_manager_issuer: None,
             cert_manager_cluster_issuer: None,
             annotations: None,
+            ..Default::default()
         });
 
         let result = spec.validate();
@@ -505,6 +404,7 @@ mod stellar_node_spec_validation {
             cert_manager_issuer: None,
             cert_manager_cluster_issuer: None,
             annotations: None,
+            ..Default::default()
         });
 
         let result = spec.validate();
@@ -532,6 +432,7 @@ mod stellar_node_spec_validation {
             cert_manager_issuer: None,
             cert_manager_cluster_issuer: None,
             annotations: None,
+            ..Default::default()
         });
 
         let result = spec.validate();
@@ -562,6 +463,7 @@ mod stellar_node_spec_validation {
             cert_manager_issuer: None,
             cert_manager_cluster_issuer: None,
             annotations: None,
+            ..Default::default()
         });
 
         let result = spec.validate();
@@ -592,6 +494,7 @@ mod stellar_node_spec_validation {
             cert_manager_issuer: None,
             cert_manager_cluster_issuer: None,
             annotations: None,
+            ..Default::default()
         });
 
         let result = spec.validate();
@@ -622,6 +525,7 @@ mod stellar_node_spec_validation {
             cert_manager_issuer: None,
             cert_manager_cluster_issuer: None,
             annotations: None,
+            ..Default::default()
         });
 
         assert!(spec.validate().is_ok());
@@ -740,6 +644,7 @@ mod stellar_node_spec_validation {
             cert_manager_issuer: None,
             cert_manager_cluster_issuer: Some("letsencrypt-prod".to_string()),
             annotations: None,
+            ..Default::default()
         });
 
         assert!(spec.validate().is_ok());
@@ -967,6 +872,7 @@ mod stellar_node_spec_validation {
             cert_manager_issuer: None,
             cert_manager_cluster_issuer: None,
             annotations: None,
+            ..Default::default()
         });
 
         assert!(spec.validate().is_ok());
@@ -994,6 +900,7 @@ mod stellar_node_spec_validation {
             cert_manager_issuer: None,
             cert_manager_cluster_issuer: None,
             annotations: None,
+            ..Default::default()
         });
 
         assert!(spec.validate().is_ok());

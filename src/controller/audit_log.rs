@@ -200,9 +200,9 @@ impl AuditLog {
     ) -> Vec<AuditEntry> {
         let entries = self.entries.read().unwrap();
         let iter = entries.iter().rev().filter(|e| {
-            namespace.map_or(true, |ns| e.namespace == ns)
-                && resource.map_or(true, |r| e.resource.contains(r))
-                && actor.map_or(true, |a| e.actor == a)
+            namespace.is_none_or(|ns| e.namespace == ns)
+                && resource.is_none_or(|r| e.resource.contains(r))
+                && actor.is_none_or(|a| e.actor == a)
         });
 
         if limit == 0 {

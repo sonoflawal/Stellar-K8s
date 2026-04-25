@@ -8,8 +8,6 @@ use std::time::Duration;
 
 use futures::StreamExt;
 use k8s_openapi::api::core::v1::{Node, Pod};
-use k8s_openapi::api::policy::v1::Eviction;
-use k8s_openapi::apimachinery::pkg::apis::meta::v1::ObjectMeta;
 use kube::{
     api::{Api, EvictParams, ListParams},
     runtime::{
@@ -75,7 +73,7 @@ impl NodeDrainOrchestrator {
     fn is_node_cordoned(&self, node: &Node) -> bool {
         node.spec
             .as_ref()
-            .map_or(false, |spec| spec.unschedulable.unwrap_or(false))
+            .is_some_and(|spec| spec.unschedulable.unwrap_or(false))
     }
 
     /// Handle a cordoned node by migrating Stellar pods gracefully
@@ -104,11 +102,11 @@ impl NodeDrainOrchestrator {
     fn is_stellar_pod(&self, pod: &Pod) -> bool {
         pod.labels()
             .get("app.kubernetes.io/managed-by")
-            .map_or(false, |m| m == "stellar-operator")
+            .is_some_and(|m| m == "stellar-operator")
     }
 
     /// Manage the graceful migration of a single pod
-    async fn manage_pod_migration(&self, pod: Pod, node: &Node) -> Result<()> {
+    async fn manage_pod_migration(&self, pod: Pod, _node: &Node) -> Result<()> {
         let pod_name = pod.name_any();
         let namespace = pod.namespace().unwrap_or_else(|| "default".to_string());
         let recorder = Recorder::new(

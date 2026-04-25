@@ -485,7 +485,7 @@ pub struct PeerLatencyStatus {
 mod tests {
     use super::*;
     use crate::crd::{
-        types::{NodeType, ResourceRequirements, ResourceSpec, StellarNetwork, StorageConfig},
+        types::{NodeType, StellarNetwork},
         CrossClusterConfig, PeerClusterConfig, StellarNode, StellarNodeSpec,
     };
     use k8s_openapi::apimachinery::pkg::apis::meta::v1::ObjectMeta;
@@ -499,57 +499,7 @@ mod tests {
             node_type: NodeType::Validator,
             network: StellarNetwork::Testnet,
             version: "v21.0.0".to_string(),
-            history_mode: Default::default(),
-            resources: ResourceRequirements {
-                requests: ResourceSpec {
-                    cpu: "500m".to_string(),
-                    memory: "1Gi".to_string(),
-                },
-                limits: ResourceSpec {
-                    cpu: "2".to_string(),
-                    memory: "4Gi".to_string(),
-                },
-            },
-            storage: StorageConfig::default(),
-            validator_config: None,
-            horizon_config: None,
-            soroban_config: None,
-            replicas: 1,
-            min_available: None,
-            max_unavailable: None,
-            suspended: false,
-            alerting: false,
-            database: None,
-            managed_database: None,
-            autoscaling: None,
-            vpa_config: None,
-            ingress: None,
-            load_balancer: None,
-            global_discovery: None,
-            cross_cluster: None,
-            strategy: Default::default(),
-            maintenance_mode: false,
-            network_policy: None,
-            dr_config: None,
-            pod_anti_affinity: Default::default(),
-            placement: Default::default(),
-            topology_spread_constraints: None,
-            cve_handling: None,
-            snapshot_schedule: None,
-            restore_from_snapshot: None,
-            read_replica_config: None,
-            read_pool_endpoint: None,
-            db_maintenance_config: None,
-            oci_snapshot: None,
-            service_mesh: None,
-            forensic_snapshot: None,
-            label_propagation: None,
-            resource_meta: None,
-            sidecars: None,
-            nat_traversal: None,
-            custom_network_passphrase: None,
-            cross_cloud_failover: None,
-            hitless_upgrade: None,
+            ..Default::default()
         }
     }
 

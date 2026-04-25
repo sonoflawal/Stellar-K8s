@@ -22,7 +22,6 @@ use axum::http::StatusCode;
 use axum::response::IntoResponse;
 use axum::routing::get;
 use axum::Router;
-use once_cell::sync::Lazy;
 use prometheus_client::encoding::text::encode;
 use prometheus_client::encoding::EncodeLabelSet;
 use prometheus_client::metrics::counter::Counter;
@@ -149,6 +148,12 @@ impl WatcherMetrics {
             last_poll_timestamp_seconds,
             watcher_info,
         }
+    }
+}
+
+impl Default for WatcherMetrics {
+    fn default() -> Self {
+        Self::new()
     }
 }
 

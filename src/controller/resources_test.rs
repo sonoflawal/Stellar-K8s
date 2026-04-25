@@ -35,46 +35,7 @@ mod tests {
                 },
             },
             replicas: 3,
-            min_available: None,
-            max_unavailable: None,
-            suspended: false,
-            alerting: false,
-            database: None,
-            managed_database: None,
-            autoscaling: None,
-            vpa_config: None,
-            ingress: None,
-            load_balancer: None,
-            global_discovery: None,
-            cross_cluster: None,
-            strategy: Default::default(),
-            maintenance_mode: false,
-            network_policy: None,
-            dr_config: None,
-            pod_anti_affinity: Default::default(),
-            placement: Default::default(),
-            topology_spread_constraints: None,
-            cve_handling: None,
-            snapshot_schedule: None,
-            restore_from_snapshot: None,
-            read_replica_config: None,
-            read_pool_endpoint: None,
-            sidecars: None,
-            db_maintenance_config: None,
-            oci_snapshot: None,
-            service_mesh: None,
-            forensic_snapshot: None,
-            label_propagation: None,
-            resource_meta: None,
-            history_mode: Default::default(),
-            storage: Default::default(),
-            validator_config: None,
-            horizon_config: None,
-            soroban_config: None,
-            nat_traversal: None,
-            custom_network_passphrase: None,
-            cross_cloud_failover: None,
-            hitless_upgrade: None,
+            ..Default::default()
         }
     }
 
@@ -337,13 +298,7 @@ peer-2 = "G..."
 "#
                 .to_string(),
             ),
-            enable_history_archive: false,
-            history_archive_urls: vec![],
-            catchup_complete: false,
-            key_source: Default::default(),
-            kms_config: None,
-            vl_source: None,
-            hsm_config: None,
+            ..Default::default()
         });
 
         let affinity = merge_workload_affinity(&node).expect("affinity should be generated");
@@ -544,15 +499,17 @@ peer-2 = "G..."
     #[test]
     fn test_network_policy_stellar_native_egress() {
         let mut node = make_node(NodeType::Validator);
-        let mut vc = ValidatorConfig::default();
-        vc.known_peers = Some(r#"["1.2.3.4:11625", "example.com:11625"]"#.to_string());
-        vc.quorum_set = Some(
-            r#"[VALIDATORS]
+        let vc = ValidatorConfig {
+            known_peers: Some(r#"["1.2.3.4:11625", "example.com:11625"]"#.to_string()),
+            quorum_set: Some(
+                r#"[VALIDATORS]
 "5.6.7.8" = "G..."
 "G..." = "G..."
 "#
-            .to_string(),
-        );
+                .to_string(),
+            ),
+            ..Default::default()
+        };
         node.spec.validator_config = Some(vc);
 
         let config = crate::crd::types::NetworkPolicyConfig {
@@ -578,11 +535,9 @@ peer-2 = "G..."
 
         // 1. DNS egress
         let has_dns = egress.iter().any(|rule| {
-            rule.ports.as_ref().map_or(false, |ports| {
+            rule.ports.as_ref().is_some_and(|ports| {
                 ports.iter().any(|p| {
-                    p.port.as_ref().map_or(false, |v| {
-                        v == &k8s_openapi::apimachinery::pkg::util::intstr::IntOrString::Int(53)
-                    })
+                    p.port.as_ref() == Some(&k8s_openapi::apimachinery::pkg::util::intstr::IntOrString::Int(53))
                 })
             })
         });
@@ -590,9 +545,9 @@ peer-2 = "G..."
 
         // 2. Peer egress
         let has_peers = egress.iter().any(|rule| {
-            rule.to.as_ref().map_or(false, |to| {
+            rule.to.as_ref().is_some_and(|to| {
                 to.iter().any(|p| {
-                    p.ip_block.as_ref().map_or(false, |ip| {
+                    p.ip_block.as_ref().is_some_and(|ip| {
                         ip.cidr == "1.2.3.4/32" || ip.cidr == "5.6.7.8/32"
                     })
                 })

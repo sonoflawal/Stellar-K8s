@@ -197,13 +197,11 @@ async fn create_volume_snapshot(
             "persistentVolumeClaimName": pvc_name
         },
         "volumeSnapshotClassName": config.volume_snapshot_class_name,
-        "parameters": if let Some(ref key) = config.encryption_key_ref {
-            Some(serde_json::json!({
+        "parameters": config.encryption_key_ref.as_ref().map(|key| {
+            serde_json::json!({
                 "encryptionKeyRef": key
-            }))
-        } else {
-            None
-        }
+            })
+        })
     });
 
     let snapshot = DynamicObject {

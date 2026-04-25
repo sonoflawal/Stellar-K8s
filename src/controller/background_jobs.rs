@@ -283,7 +283,7 @@ impl JobRegistry {
             .jobs
             .iter()
             .filter(|r| {
-                let state_ok = state_filter.map_or(true, |s| {
+                let state_ok = state_filter.is_none_or(|s| {
                     let state_str = match &r.state {
                         JobState::Pending => "pending",
                         JobState::Running => "running",
@@ -293,7 +293,7 @@ impl JobRegistry {
                     };
                     state_str == s
                 });
-                let kind_ok = kind_filter.map_or(true, |k| {
+                let kind_ok = kind_filter.is_none_or(|k| {
                     let kind_str = match &r.kind {
                         JobKind::Reconcile => "reconcile",
                         JobKind::ArchiveCheck => "archive_check",
