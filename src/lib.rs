@@ -73,6 +73,7 @@ pub mod runbook;
 pub mod scheduler;
 pub mod search;
 pub mod telemetry;
+pub mod version_check;
 
 #[cfg(feature = "rest-api")]
 pub mod rest_api;
