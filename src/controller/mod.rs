@@ -50,8 +50,11 @@
 
 pub mod benchmark;
 pub mod blue_green;
+pub mod canary;
 pub mod cross_cloud_failover;
 pub mod feature_flags;
+pub mod gas_autoscaling;
+pub mod horizon_scaler;
 pub mod jurisdiction;
 pub mod label_propagation;
 pub mod maintenance;
@@ -61,11 +64,10 @@ pub mod pss;
 pub mod resource_meta;
 
 mod archive_health;
-pub mod background_jobs;
-pub mod db_pool;
 pub mod archive_prune;
 pub mod audit;
 pub mod audit_log;
+pub mod background_jobs;
 pub mod captive_core;
 pub mod chaos_engineering;
 pub mod conditions;
@@ -75,6 +77,7 @@ pub mod cve;
 mod cve_reconciler;
 #[cfg(test)]
 mod cve_test;
+pub mod db_pool;
 pub mod diff;
 pub mod dr;
 pub mod dr_drill;
@@ -108,8 +111,10 @@ mod resources;
 mod resources_test;
 pub mod service_mesh;
 mod snapshot;
-pub mod storage_migration;
 pub mod snapshot_worker;
+pub mod pruning_worker;
+pub mod pruning_reconciler;
+pub mod storage_migration;
 pub mod traffic;
 #[cfg(test)]
 mod traffic_test;
@@ -123,6 +128,8 @@ pub use archive_health::{
     calculate_backoff, check_archive_integrity, check_history_archive_health, ArchiveHealthResult,
     ArchiveIntegrityResult, ARCHIVE_LAG_THRESHOLD,
 };
+pub use audit_log::{AdminAction, AuditEntry, AuditLog};
+pub use background_jobs::{JobKind, JobRecord, JobRegistry, JobState, MAX_JOBS};
 pub use benchmark::run_benchmark_controller;
 pub use blue_green::{
     cleanup_blue_deployment, create_green_deployment, rollback_to_blue, run_smoke_tests,
@@ -131,6 +138,9 @@ pub use blue_green::{
 pub use cross_cloud_failover::reconcile_cross_cloud_failover;
 pub use cross_cluster::{check_peer_latency, ensure_cross_cluster_services, PeerLatencyStatus};
 pub use cve_reconciler::reconcile_cve_patches;
+pub use db_pool::{
+    create_pool, DbPoolConfig, DEFAULT_CONNECTION_TIMEOUT_SECS, DEFAULT_MAX_CONNECTIONS,
+};
 pub use feature_flags::{
     watch_feature_flags, FeatureFlags, SharedFeatureFlags, FEATURE_FLAGS_CONFIGMAP,
 };
@@ -154,8 +164,6 @@ pub use pss::{
     restricted_pod_security_context, validate_pss_compliance, PssViolation,
 };
 #[cfg(feature = "reconciler-fuzz")]
-pub use background_jobs::{JobKind, JobRecord, JobRegistry, JobState, MAX_JOBS};
-pub use db_pool::{create_pool, DbPoolConfig, DEFAULT_CONNECTION_TIMEOUT_SECS, DEFAULT_MAX_CONNECTIONS};
 pub use reconciler::reconcile_for_fuzz;
 pub use reconciler::{run_controller, BatchSummaryReport, ControllerState};
 pub use remediation::{can_remediate, check_stale_node, RemediationLevel, StaleCheckResult};
@@ -163,8 +171,10 @@ pub use service_mesh::{
     delete_service_mesh_resources, ensure_destination_rule, ensure_peer_authentication,
     ensure_request_authentication, ensure_virtual_service,
 };
+pub use snapshot_worker::run_snapshot_worker;
 pub use webhook_delivery::{
     DeliveryRecord, WebhookDeliveryService, WebhookEndpoint, WebhookEvent, WebhookEventType,
 };
 pub use audit_log::{AdminAction, AuditEntry, AuditLog};
 pub use snapshot_worker::run_snapshot_worker;
+pub use pruning_reconciler::{reconcile_pruning, update_pruning_status};

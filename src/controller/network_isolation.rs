@@ -40,7 +40,7 @@ use std::collections::BTreeMap;
 
 use k8s_openapi::api::core::v1::Namespace;
 use kube::api::{Api, ListParams};
-use kube::Client;
+use kube::{Client, ResourceExt};
 use tracing::{info, warn};
 
 use crate::crd::{StellarNetwork, StellarNode};

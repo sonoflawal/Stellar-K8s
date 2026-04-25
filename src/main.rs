@@ -3,6 +3,8 @@ use std::process::{self};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
+use stellar_k8s::version_check;
+
 use chrono::Utc;
 use clap::{Parser, Subcommand};
 use k8s_openapi::api::coordination::v1::Lease;
@@ -51,6 +53,10 @@ stellar-operator version"
 struct Args {
     #[command(subcommand)]
     command: Commands,
+
+    /// Skip the background version check against GitHub releases.
+    #[arg(long, global = true, env = "STELLAR_OFFLINE")]
+    offline: bool,
 }
 
 #[derive(Subcommand, Debug)]
@@ -382,20 +388,35 @@ struct BenchmarkArgs {
 async fn main() -> Result<(), Error> {
     let args = Args::parse();
 
-    match args.command {
+    // Run the version check in the background; it prints to stderr after the
+    // command completes so it never blocks or interrupts normal output.
+    let offline = args.offline;
+
+    // For short-lived commands, run the version check after the command completes.
+    // Long-running commands (run, webhook, benchmark) skip it to avoid noise.
+    let result = match args.command {
         Commands::Version => {
             println!("Stellar-K8s Operator v{}", env!("CARGO_PKG_VERSION"));
             println!("Build Date: {}", env!("BUILD_DATE"));
             println!("Git SHA: {}", env!("GIT_SHA"));
             println!("Rust Version: {}", env!("RUST_VERSION"));
-            return Ok(());
+            Ok(())
         }
-        Commands::Info(info_args) => {
-            return run_info(info_args).await;
+        Commands::Info(info_args) => run_info(info_args).await,
+        Commands::CheckCrd => run_check_crd().await,
+        Commands::PruneArchive(prune_args) => prune_archive(prune_args).await,
+        Commands::Diff(diff_args) => diff(diff_args).await,
+        Commands::GenerateRunbook(runbook_args) => run_generate_runbook(runbook_args).await,
+        Commands::IncidentReport(report_args) => incident::run_incident_report(report_args).await,
+        Commands::Completions { shell } => {
+            use clap::CommandFactory;
+            use clap_complete::generate;
+            let mut cmd = Args::command();
+            let name = cmd.get_name().to_string();
+            generate(shell, &mut cmd, name, &mut std::io::stdout());
+            Ok(())
         }
-        Commands::CheckCrd => {
-            return run_check_crd().await;
-        }
+        // Long-running commands: skip version check notification.
         Commands::Run(run_args) => {
             if let Err(e) = run_args.validate() {
                 eprintln!("error: {e}");
@@ -403,36 +424,15 @@ async fn main() -> Result<(), Error> {
             }
             return run_operator(run_args).await;
         }
-        Commands::Webhook(webhook_args) => {
-            return run_webhook(webhook_args).await;
-        }
+        Commands::Webhook(webhook_args) => return run_webhook(webhook_args).await,
         Commands::Benchmark(benchmark_args) => {
-            return run_benchmark_controller_cmd(benchmark_args).await;
+            return run_benchmark_controller_cmd(benchmark_args).await
         }
-        Commands::Simulator(cli) => {
-            return run_simulator(cli).await;
-        }
-        Commands::Completions { shell } => {
-            use clap::CommandFactory;
-            use clap_complete::generate;
-            let mut cmd = Args::command();
-            let name = cmd.get_name().to_string();
-            generate(shell, &mut cmd, name, &mut std::io::stdout());
-            return Ok(());
-        }
-        Commands::IncidentReport(args) => {
-            return incident::run_incident_report(args).await;
-        }
-        Commands::PruneArchive(args) => {
-            return prune_archive(args).await;
-        }
-        Commands::Diff(args) => {
-            return diff(args).await;
-        }
-        Commands::GenerateRunbook(args) => {
-            return run_generate_runbook(args).await;
-        }
-    }
+        Commands::Simulator(cli) => return run_simulator(cli).await,
+    };
+
+    version_check::check_and_notify(offline).await;
+    result
 }
 
 async fn run_simulator(cli: SimulatorCli) -> Result<(), Error> {
@@ -1149,6 +1149,7 @@ async fn run_operator(args: RunArgs) -> Result<(), Error> {
 
     // Create shared controller state
     let operator_config = stellar_k8s::controller::OperatorConfig::load();
+    #[cfg(feature = "rest-api")]
     let oidc_config = operator_config.oidc.clone();
     let state = Arc::new(controller::ControllerState {
         client: client.clone(),
@@ -1173,6 +1174,7 @@ async fn run_operator(args: RunArgs) -> Result<(), Error> {
         last_event_received: Arc::new(std::sync::atomic::AtomicU64::new(0)),
         job_registry: Arc::new(stellar_k8s::controller::JobRegistry::new()),
         audit_log: Arc::new(stellar_k8s::controller::AuditLog::new()),
+        #[cfg(feature = "rest-api")]
         oidc_config,
     });
 
@@ -1196,8 +1198,22 @@ async fn run_operator(args: RunArgs) -> Result<(), Error> {
         let ff_client = client.clone();
         let ff_namespace = args.namespace.clone();
         let ff_flags = feature_flags.clone();
+        let ff_audit_sink = if state.operator_config.audit.enabled {
+            if let Some(s3_config) = &state.operator_config.audit.s3 {
+                Some(
+                    Arc::new(controller::audit_sink::S3AuditSink::new(s3_config.clone()).await)
+                        as Arc<dyn controller::audit_sink::AuditSink>,
+                )
+            } else {
+                Some(Arc::new(controller::audit_sink::NoopAuditSink)
+                    as Arc<dyn controller::audit_sink::AuditSink>)
+            }
+        } else {
+            None
+        };
+
         tokio::spawn(async move {
-            controller::watch_feature_flags(ff_client, ff_namespace, ff_flags).await;
+            controller::watch_feature_flags(ff_client, ff_namespace, ff_flags, ff_audit_sink).await;
         });
     }
 
@@ -1745,5 +1761,26 @@ mod cli_tests {
     fn simulator_up_custom_cluster() {
         let args = parse_simulator_up(&["--cluster-name", "my-cluster"]).unwrap();
         assert_eq!(args.cluster_name, "my-cluster");
+    }
+
+    // ── offline flag ──────────────────────────────────────────────────────────
+
+    #[test]
+    fn offline_flag_is_false_by_default() {
+        let parsed = Args::try_parse_from(["stellar-operator", "version"]).unwrap();
+        assert!(!parsed.offline);
+    }
+
+    #[test]
+    fn offline_flag_can_be_set() {
+        let parsed = Args::try_parse_from(["stellar-operator", "--offline", "version"]).unwrap();
+        assert!(parsed.offline);
+    }
+
+    #[test]
+    fn offline_flag_is_global_on_subcommand() {
+        // --offline placed after the subcommand should also work (global flag)
+        let parsed = Args::try_parse_from(["stellar-operator", "check-crd", "--offline"]).unwrap();
+        assert!(parsed.offline);
     }
 }

@@ -19,7 +19,9 @@ pub async fn score_nodes<'a>(
 ) -> Result<Option<&'a Node>> {
     // 1. Check for Quorum Proximity scheduling (Stellar Validators)
     if is_validator_pod(pod) {
-        if let Ok(Some(node)) = score_nodes_quorum_proximity(pod, candidates, client, prometheus).await {
+        if let Ok(Some(node)) =
+            score_nodes_quorum_proximity(pod, candidates, client, prometheus).await
+        {
             return Ok(Some(node));
         }
     }
@@ -93,7 +95,8 @@ async fn score_nodes_quorum_proximity<'a>(
     let mut peer_latencies = HashMap::new();
     if let Some(prom) = prometheus {
         for peer_name in &peer_names {
-            if let Ok(Some(latency)) = prom.get_validator_latency(namespace, peer_name, "5m").await {
+            if let Ok(Some(latency)) = prom.get_validator_latency(namespace, peer_name, "5m").await
+            {
                 peer_latencies.insert(peer_name.clone(), latency);
             }
         }

@@ -95,6 +95,10 @@ pub enum Error {
     /// Network isolation safety violation — cross-network nodes detected in the same namespace
     #[error("[SK8S-021] {0}")]
     NetworkSafetyViolation(#[from] crate::controller::network_isolation::NetworkSafetyViolation),
+
+    /// Internal operator error
+    #[error("[SK8S-022] Internal error: {0}")]
+    InternalError(String),
 }
 
 /// Result type alias for operator operations
@@ -141,6 +145,7 @@ impl Error {
             Error::KubeconfigError(e) => format!("[SK8S-019] Kubeconfig error: {e}"),
             Error::ZipError(e) => format!("[SK8S-020] Zip error: {e}"),
             Error::NetworkSafetyViolation(v) => format!("[SK8S-021] Network safety violation: {v}"),
+            Error::InternalError(msg) => format!("[SK8S-022] Internal error: {msg}"),
         }
     }
 }

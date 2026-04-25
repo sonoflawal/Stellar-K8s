@@ -10,7 +10,7 @@ use k8s_openapi::api::core::v1::Pod;
 use kube::{
     api::{Api, ListParams, Patch, PatchParams},
     runtime::events::{EventType, Recorder, Reporter},
-    Client, ResourceExt,
+    Client, Resource, ResourceExt,
 };
 use tracing::{debug, error, info, instrument, warn};
 
@@ -28,7 +28,7 @@ pub struct QuorumOptimizer {
 impl QuorumOptimizer {
     pub fn new(client: Client, reporter: Reporter) -> Self {
         // Initialize with a default timeout and window size for measurements
-        let analyzer = QuorumAnalyzer::new(Duration::from_secs(10), 50);
+        let analyzer = QuorumAnalyzer::new(Duration::from_secs(10), 50, 3);
         Self {
             client,
             reporter,

@@ -38,15 +38,17 @@ use kube::api::{Api, DeleteParams, Patch, PatchParams, PostParams};
 use kube::{Client, Resource, ResourceExt};
 use tracing::{info, instrument, warn};
 
-use crate::crd::types::PodAntiAffinityStrength;
+use crate::crd::types::{PodAntiAffinityStrength, ReplicationRole};
 use crate::crd::{
     BackupConfiguration, BarmanObjectStore, BootstrapConfiguration, Cluster, ClusterSpec,
-    HistoryMode, HsmProvider, IngressConfig, InitDbConfiguration, KeySource, ManagedDatabaseConfig,
-    MonitoringConfiguration, NetworkPolicyConfig, NodeType, PgBouncerSpec, Pooler, PoolerCluster,
-    PoolerSpec, PostgresConfiguration, S3Credentials, SecretKeySelector as CnpgSecretKeySelector,
-    StellarNode, StellarNodeSpec, StorageConfiguration, WalBackupConfiguration,
+    ExternalCluster, HistoryMode, HsmProvider, IngressConfig, InitDbConfiguration, KeySource,
+    ManagedDatabaseConfig, MonitoringConfiguration, NetworkPolicyConfig, NodeType, PgBouncerSpec,
+    Pooler, PoolerCluster, PoolerSpec, PostgresConfiguration, RecoveryConfiguration,
+    ReplicaConfiguration, S3Credentials, SecretKeySelector as CnpgSecretKeySelector, StellarNode,
+    StellarNodeSpec, StorageConfiguration, WalBackupConfiguration,
 };
 use crate::error::{Error, Result};
+use crate::scheduler::scoring::extract_peer_names_from_toml;
 
 /// Get the standard labels for a StellarNode's resources
 pub(crate) fn standard_labels(node: &StellarNode) -> BTreeMap<String, String> {
@@ -472,6 +474,57 @@ pub(crate) fn build_config_map(
         }
     }
 
+    if let Some(ebpf_cfg) = &node.spec.ebpf_config {
+        if ebpf_cfg.enabled {
+            let mut exporter_yaml = String::from("programs:\n");
+
+            if ebpf_cfg.monitor_write_latency {
+                exporter_yaml.push_str(
+                    r#"  - name: write_latency
+    metrics:
+      counters:
+        - name: ebpf_write_latency_seconds_sum
+          help: Total write latency in seconds
+          labels:
+            - name: process
+              size: 16
+              decoding: string
+    tracepoints:
+      sys_enter_write:
+        code: |
+          // BPF code to track write latency
+          // This is a simplified placeholder for the actual BPF C code
+          bpf_trace_printk("write enter\n");
+"#,
+                );
+            }
+
+            if ebpf_cfg.monitor_tcp_retransmits {
+                exporter_yaml.push_str(
+                    r#"  - name: tcp_retransmits
+    metrics:
+      counters:
+        - name: ebpf_tcp_retransmits_total
+          help: Total TCP retransmits
+          labels:
+            - name: process
+              size: 16
+              decoding: string
+    tracepoints:
+      tcp_retransmit_skb:
+        code: |
+          // BPF code to track TCP retransmits
+          bpf_trace_printk("tcp retransmit\n");
+"#,
+                );
+            }
+
+            if ebpf_cfg.monitor_write_latency || ebpf_cfg.monitor_tcp_retransmits {
+                data.insert("ebpf-exporter.yaml".to_string(), exporter_yaml);
+            }
+        }
+    }
+
     let annotations = node.spec.storage.annotations.clone().unwrap_or_default();
 
     ConfigMap {
@@ -598,11 +651,19 @@ fn build_deployment(node: &StellarNode, enable_mtls: bool) -> Deployment {
     let labels = standard_labels(node);
     let name = node.name_any();
 
-    let replicas = if node.spec.suspended {
+    let mut replicas = if node.spec.suspended {
         0
     } else {
         node.spec.replicas
     };
+
+    // If node is Passive in a replication setup, scale to 0 to prevent DB write conflicts
+    // while the managed database is in read-only replica mode.
+    if let Some(repl_cfg) = &node.spec.replication_config {
+        if repl_cfg.enabled && repl_cfg.role == ReplicationRole::Passive {
+            replicas = 0;
+        }
+    }
 
     Deployment {
         metadata: merge_resource_meta(
@@ -683,7 +744,15 @@ fn build_statefulset(
     let labels = standard_labels(node);
     let name = node.name_any();
 
-    let replicas = if node.spec.suspended { 0 } else { 1 };
+    let mut replicas = if node.spec.suspended { 0 } else { 1 };
+
+    // If node is Passive in a replication setup, scale to 0 to prevent DB write conflicts
+    // while the managed database is in read-only replica mode.
+    if let Some(repl_cfg) = &node.spec.replication_config {
+        if repl_cfg.enabled && repl_cfg.role == ReplicationRole::Passive {
+            replicas = 0;
+        }
+    }
 
     let annotations = node.spec.storage.annotations.clone().unwrap_or_default();
 
@@ -1024,6 +1093,8 @@ fn build_cnpg_cluster(node: &StellarNode, config: &ManagedDatabaseConfig) -> Clu
                     p
                 },
             }),
+            external_clusters: None,
+            replica: None,
             storage: StorageConfiguration {
                 size: config.storage.size.clone(),
                 storage_class: Some(config.storage.storage_class.clone()),
@@ -1056,6 +1127,7 @@ fn build_cnpg_cluster(node: &StellarNode, config: &ManagedDatabaseConfig) -> Clu
                     owner: "stellar".to_string(),
                     secret: None,
                 }),
+                recovery: None,
             }),
             monitoring: Some(MonitoringConfiguration {
                 enable_pod_monitor: true,
@@ -1068,6 +1140,49 @@ fn build_cnpg_cluster(node: &StellarNode, config: &ManagedDatabaseConfig) -> Clu
             "ghcr.io/cloudnative-pg/postgresql:{}",
             config.postgres_version
         ));
+    }
+
+    // Handle multi-region replication
+    if let Some(repl_cfg) = &node.spec.replication_config {
+        if repl_cfg.enabled && repl_cfg.role == ReplicationRole::Passive {
+            let remote_name = format!("{}-primary", repl_cfg.remote_cluster_id);
+
+            // Define external cluster pointing to the primary in the remote region
+            let external_cluster = ExternalCluster {
+                name: remote_name.clone(),
+                connection_parameters: {
+                    let mut p = BTreeMap::new();
+                    p.insert(
+                        "host".to_string(),
+                        format!("{}.{}.svc", node.name_any(), repl_cfg.remote_cluster_id),
+                    );
+                    p.insert("user".to_string(), "stellar".to_string());
+                    p.insert("dbname".to_string(), "stellar".to_string());
+                    p.insert("sslmode".to_string(), "require".to_string());
+                    p
+                },
+                password: CnpgSecretKeySelector {
+                    name: format!("{}-app", node.name_any()),
+                    key: "password".to_string(),
+                },
+            };
+
+            cluster.spec.external_clusters = Some(vec![external_cluster]);
+
+            // Configure bootstrap to recover from the external cluster
+            if let Some(bootstrap) = &mut cluster.spec.bootstrap {
+                bootstrap.initdb = None; // Cannot use initdb with recovery
+                bootstrap.recovery = Some(RecoveryConfiguration {
+                    source: remote_name.clone(),
+                });
+            }
+
+            // Set as replica
+            cluster.spec.replica = Some(ReplicaConfiguration {
+                enabled: true,
+                source: remote_name,
+            });
+        }
     }
 
     cluster
@@ -1316,11 +1431,7 @@ async fn ensure_istio_canary_virtual_service(
     let stable_weight = 100 - canary_weight.clamp(0, 100);
     let vs_name = format!("{}-canary-vs", node.name_any());
 
-    let hosts: Vec<String> = ingress_cfg
-        .hosts
-        .iter()
-        .map(|h| h.host.clone())
-        .collect();
+    let hosts: Vec<String> = ingress_cfg.hosts.iter().map(|h| h.host.clone()).collect();
 
     let api_resource = ApiResource {
         group: "networking.istio.io".to_string(),
@@ -1574,7 +1685,7 @@ fn build_pod_template(
             Volume {
                 name: "config".to_string(),
                 config_map: Some(k8s_openapi::api::core::v1::ConfigMapVolumeSource {
-                    name: resource_name(node, "config"),
+                    name: Some(resource_name(node, "config")),
                     ..Default::default()
                 }),
                 ..Default::default()
@@ -1979,6 +2090,74 @@ fn build_pod_template(
         // Extend pod volumes with any CSI volume
         if let Some(ref mut vols) = pod_spec.volumes {
             vols.extend(inj.volumes());
+        }
+    }
+    // ==========================================================================
+
+    // ==========================================================================
+    // NEW: Inject ebpf-exporter sidecar (Validators only, when enabled)
+    // ==========================================================================
+    if let Some(ebpf_cfg) = &node.spec.ebpf_config {
+        if ebpf_cfg.enabled && node.spec.node_type == NodeType::Validator {
+            let exporter_args = vec!["--config.file=/ebpf/ebpf-exporter.yaml".to_string()];
+
+            let sidecar_image = "cloudflare/ebpf_exporter:latest".to_string();
+
+            let ebpf_container = k8s_openapi::api::core::v1::Container {
+                name: "ebpf-exporter".to_string(),
+                image: Some(sidecar_image),
+                args: Some(exporter_args),
+                ports: Some(vec![k8s_openapi::api::core::v1::ContainerPort {
+                    name: Some("metrics".to_string()),
+                    container_port: 9435,
+                    protocol: Some("TCP".to_string()),
+                    ..Default::default()
+                }]),
+                volume_mounts: Some(vec![
+                    k8s_openapi::api::core::v1::VolumeMount {
+                        name: "config".to_string(),
+                        mount_path: "/ebpf".to_string(),
+                        read_only: Some(true),
+                        ..Default::default()
+                    },
+                    k8s_openapi::api::core::v1::VolumeMount {
+                        name: "sys-kernel-debug".to_string(),
+                        mount_path: "/sys/kernel/debug".to_string(),
+                        read_only: Some(false),
+                        ..Default::default()
+                    },
+                    k8s_openapi::api::core::v1::VolumeMount {
+                        name: "lib-modules".to_string(),
+                        mount_path: "/lib/modules".to_string(),
+                        read_only: Some(true),
+                        ..Default::default()
+                    },
+                ]),
+                security_context: Some(SecurityContext {
+                    privileged: Some(true),
+                    ..Default::default()
+                }),
+                ..Default::default()
+            };
+            pod_spec.containers.push(ebpf_container);
+
+            let vols = pod_spec.volumes.get_or_insert_with(Vec::new);
+            vols.push(k8s_openapi::api::core::v1::Volume {
+                name: "sys-kernel-debug".to_string(),
+                host_path: Some(k8s_openapi::api::core::v1::HostPathVolumeSource {
+                    path: "/sys/kernel/debug".to_string(),
+                    type_: Some("DirectoryOrCreate".to_string()),
+                }),
+                ..Default::default()
+            });
+            vols.push(k8s_openapi::api::core::v1::Volume {
+                name: "lib-modules".to_string(),
+                host_path: Some(k8s_openapi::api::core::v1::HostPathVolumeSource {
+                    path: "/lib/modules".to_string(),
+                    type_: Some("Directory".to_string()),
+                }),
+                ..Default::default()
+            });
         }
     }
     // ==========================================================================
@@ -2594,7 +2773,7 @@ fn build_horizon_migration_container(node: &StellarNode) -> Container {
 /// Supports `.tar.gz` and `.tar.zst` archives.
 /// For S3 URLs, AWS CLI credentials are injected from `credentials_secret_ref`.
 fn build_snapshot_restore_container(
-    node: &StellarNode,
+    _node: &StellarNode,
     backup_url: &str,
     credentials_secret_ref: Option<&str>,
     restore_image: Option<&str>,
@@ -3143,7 +3322,10 @@ fn extract_peers_from_config(node: &StellarNode) -> Vec<String> {
     peers
 }
 
-fn build_network_policy(node: &StellarNode, config: &NetworkPolicyConfig) -> NetworkPolicy {
+pub(crate) fn build_network_policy(
+    node: &StellarNode,
+    config: &NetworkPolicyConfig,
+) -> NetworkPolicy {
     let labels = standard_labels(node);
     let name = resource_name(node, "netpol");
 
@@ -3466,6 +3648,7 @@ fn build_network_policy(node: &StellarNode, config: &NetworkPolicyConfig) -> Net
                 )])),
                 ..Default::default()
             }),
+            ..Default::default()
         }]),
         ports: Some(vec![
             NetworkPolicyPort {
@@ -3537,12 +3720,36 @@ fn build_network_policy(node: &StellarNode, config: &NetworkPolicyConfig) -> Net
             } else {
                 Some(ingress_rules)
             },
-            egress: Some(egress_rules),
             egress: if egress_rules.is_empty() {
                 None
             } else {
                 Some(egress_rules)
             },
+        spec: Some({
+            NetworkPolicySpec {
+                pod_selector: LabelSelector {
+                    match_labels: Some(BTreeMap::from([
+                        ("app.kubernetes.io/instance".to_string(), node.name_any()),
+                        (
+                            "app.kubernetes.io/name".to_string(),
+                            "stellar-node".to_string(),
+                        ),
+                    ])),
+                    ..Default::default()
+                },
+                // Enforce both Ingress and Egress so the egress deny-by-default takes effect.
+                policy_types: Some(vec!["Ingress".to_string(), "Egress".to_string()]),
+                ingress: if ingress_rules.is_empty() {
+                    None
+                } else {
+                    Some(ingress_rules)
+                },
+                egress: if egress_rules.is_empty() {
+                    None
+                } else {
+                    Some(egress_rules)
+                },
+            }
         }),
     }
 }
@@ -3750,12 +3957,14 @@ mod ensure_pvc_tests {
                 label_propagation: None,
                 resource_meta: None,
                 sidecars: None,
+                cert_manager: None,
                 nat_traversal: None,
                 custom_network_passphrase: None,
                 cross_cloud_failover: None,
                 hitless_upgrade: None,
                 history_mode: Default::default(),
                 storage: Default::default(),
+                ..Default::default()
             },
             status: None,
         }
@@ -3830,5 +4039,76 @@ mod ensure_pvc_tests {
         let desired = build_pvc(&node, "standard".to_string());
 
         assert!(!pvc_needs_update(&existing, &desired));
+    }
+
+    // -----------------------------------------------------------------------
+    // Retention policy — Delete scenario
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn should_delete_pvc_returns_true_for_delete_policy() {
+        use crate::crd::types::RetentionPolicy;
+        let mut node = test_node();
+        node.spec.storage.retention_policy = RetentionPolicy::Delete;
+        assert!(
+            node.spec.should_delete_pvc(),
+            "Delete policy must trigger PVC deletion"
+        );
+    }
+
+    // -----------------------------------------------------------------------
+    // Retention policy — Retain scenario
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn should_delete_pvc_returns_false_for_retain_policy() {
+        use crate::crd::types::RetentionPolicy;
+        let mut node = test_node();
+        node.spec.storage.retention_policy = RetentionPolicy::Retain;
+        assert!(
+            !node.spec.should_delete_pvc(),
+            "Retain policy must prevent PVC deletion"
+        );
+    }
+
+    #[test]
+    fn default_retention_policy_is_delete() {
+        // StorageConfig::default() must use Delete so orphaned PVCs are
+        // cleaned up unless the user explicitly opts into Retain.
+        let node = test_node();
+        assert!(
+            node.spec.should_delete_pvc(),
+            "default retention policy must be Delete"
+        );
+    }
+
+    #[test]
+    fn pvc_built_with_delete_policy_has_correct_storage_class() {
+        use crate::crd::types::RetentionPolicy;
+        let mut node = test_node();
+        node.spec.storage.retention_policy = RetentionPolicy::Delete;
+        let pvc = build_pvc(&node, "fast-ssd".to_string());
+        assert_eq!(
+            pvc.spec
+                .as_ref()
+                .and_then(|s| s.storage_class_name.as_deref()),
+            Some("fast-ssd"),
+            "PVC storage class must be preserved regardless of retention policy"
+        );
+    }
+
+    #[test]
+    fn pvc_built_with_retain_policy_has_correct_storage_class() {
+        use crate::crd::types::RetentionPolicy;
+        let mut node = test_node();
+        node.spec.storage.retention_policy = RetentionPolicy::Retain;
+        let pvc = build_pvc(&node, "standard".to_string());
+        assert_eq!(
+            pvc.spec
+                .as_ref()
+                .and_then(|s| s.storage_class_name.as_deref()),
+            Some("standard"),
+            "PVC storage class must be preserved regardless of retention policy"
+        );
     }
 }

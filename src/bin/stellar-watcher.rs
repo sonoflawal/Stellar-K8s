@@ -82,11 +82,7 @@ struct Args {
 
     /// Address to bind the Prometheus /metrics HTTP server.
     /// Env: WATCHER_METRICS_BIND
-    #[arg(
-        long,
-        env = "WATCHER_METRICS_BIND",
-        default_value = "0.0.0.0:9101"
-    )]
+    #[arg(long, env = "WATCHER_METRICS_BIND", default_value = "0.0.0.0:9101")]
     metrics_bind: String,
 
     /// Log level (trace / debug / info / warn / error).

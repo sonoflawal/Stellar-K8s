@@ -97,7 +97,7 @@ pub async fn search_audit_log(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::controller::audit_log::{AdminAction, AuditEntry, AuditLog};
+    use crate::controller::audit_log::{AdminAction, AuditEntry};
 
     #[test]
     fn test_audit_query_defaults() {
