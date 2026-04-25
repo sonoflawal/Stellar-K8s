@@ -31,6 +31,7 @@ impl AuditReporter {
         resource_filter: Option<String>,
         actor_filter: Option<String>,
     ) -> Result<()> {
+
         let objects = self
             .client
             .list_objects_v2()
@@ -72,9 +73,11 @@ impl AuditReporter {
                     if let Ok(entry) = serde_json::from_slice::<AuditEntry>(&body.into_bytes()) {
                         let matches_resource = resource_filter
                             .as_ref()
-                            .is_none_or(|r| entry.resource.contains(r));
+                            .map_or(true, |r| entry.resource.contains(r));
                         let matches_actor =
-                            actor_filter.as_ref().is_none_or(|a| entry.actor == *a);
+                            actor_filter.as_ref().map_or(true, |a| entry.actor == *a);
+                            .is_none_or(|r| entry.resource.contains(r));
+                       
 
                         if matches_resource && matches_actor {
                             entries.push(entry);

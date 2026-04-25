@@ -50,9 +50,11 @@
 
 pub mod benchmark;
 pub mod blue_green;
+pub mod canary;
 pub mod cross_cloud_failover;
 pub mod feature_flags;
 pub mod gas_autoscaling;
+pub mod horizon_scaler;
 pub mod jurisdiction;
 pub mod label_propagation;
 pub mod maintenance;
