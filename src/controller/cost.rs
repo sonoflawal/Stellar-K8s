@@ -273,6 +273,7 @@ mod tests {
                 network_policy: None,
                 dr_config: None,
                 pod_anti_affinity: Default::default(),
+                placement: Default::default(),
                 topology_spread_constraints: None,
                 cve_handling: None,
                 snapshot_schedule: None,
@@ -282,8 +283,14 @@ mod tests {
                 oci_snapshot: None,
                 service_mesh: None,
                 forensic_snapshot: None,
+                label_propagation: None,
                 read_pool_endpoint: None,
                 resource_meta: None,
+                sidecars: None,
+                nat_traversal: None,
+                custom_network_passphrase: None,
+                cross_cloud_failover: None,
+                hitless_upgrade: None,
             },
             status: None,
         };
@@ -380,6 +387,7 @@ mod tests {
             network_policy: None,
             dr_config: None,
             pod_anti_affinity: Default::default(),
+            placement: Default::default(),
             topology_spread_constraints: None,
             cve_handling: None,
             snapshot_schedule: None,
@@ -391,6 +399,12 @@ mod tests {
             forensic_snapshot: None,
             read_pool_endpoint: None,
             resource_meta: None,
+            label_propagation: None,
+            sidecars: None,
+            nat_traversal: None,
+            custom_network_passphrase: None,
+            cross_cloud_failover: None,
+            hitless_upgrade: None,
         }
     }
 }

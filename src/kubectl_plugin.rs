@@ -27,7 +27,18 @@ fn get_node_phase(node: &StellarNode) -> String {
 
 #[derive(Parser)]
 #[command(name = "kubectl-stellar")]
-#[command(about = "A kubectl plugin for managing Stellar nodes", long_about = None)]
+#[command(about = "A kubectl plugin for managing Stellar nodes")]
+#[command(long_about = "\
+\x1b[1;36m  ✦ Stellar-K8s kubectl Plugin\x1b[0m\n\
+\x1b[1;35m  Cloud-Native Stellar Infrastructure on Kubernetes\x1b[0m\n\
+\x1b[90m  Built with Rust 🦀 · Powered by kube-rs · Apache 2.0\x1b[0m\n\n\
+Manage StellarNode resources from the command line.\n\n\
+EXAMPLES:\n  \
+kubectl stellar list\n  \
+kubectl stellar status my-validator\n  \
+kubectl stellar logs my-validator -f\n  \
+kubectl stellar list --dry-run\n  \
+kubectl stellar status --dry-run")]
 #[command(version)]
 struct Cli {
     #[command(subcommand)]
@@ -40,6 +51,13 @@ struct Cli {
     /// Output format (table, json, yaml)
     #[arg(short, long, global = true, default_value = "table")]
     output: String,
+
+    /// Simulate the command without making any state-changing API calls.
+    ///
+    /// Prints a summary of actions that would be taken without executing them.
+    /// Safe to run against production clusters.
+    #[arg(long, global = true)]
+    dry_run: bool,
 }
 
 #[derive(Subcommand)]
@@ -74,6 +92,17 @@ enum Commands {
         #[arg(short = 'A', long)]
         all_namespaces: bool,
     },
+    /// Stream Kubernetes events related to StellarNode resources
+    Events {
+        /// Name of a specific StellarNode (optional)
+        node_name: Option<String>,
+        /// Show all namespaces
+        #[arg(short = 'A', long)]
+        all_namespaces: bool,
+        /// Follow event updates in real time
+        #[arg(short, long)]
+        watch: bool,
+    },
     /// Alias for status command
     #[command(name = "sync-status")]
     SyncStatus {
@@ -98,12 +127,22 @@ enum Commands {
         /// The Stellar error code to explain (e.g., tx_bad_auth, op_no_destination)
         error_code: String,
     },
+    /// Search the documentation for keywords
+    Search {
+        /// The search query
+        query: String,
+        /// Show full content of the match
+        #[arg(short, long)]
+        full: bool,
+    },
     /// Generate shell completion scripts
     Completions {
         /// Shell to generate completions for
         #[arg(value_enum)]
         shell: clap_complete::Shell,
     },
+    /// Generate an incident report for a specific time window
+    IncidentReport(stellar_k8s::incident::IncidentReportArgs),
 }
 
 #[tokio::main]
@@ -117,27 +156,76 @@ async fn main() {
 }
 
 async fn run(cli: Cli) -> Result<()> {
+    // Emit a dry-run notice for any command that would mutate cluster state.
+    if cli.dry_run {
+        let action = match &cli.command {
+            Commands::List { .. }
+            | Commands::Status { .. }
+            | Commands::SyncStatus { .. }
+            | Commands::Events { .. }
+            | Commands::Version
+            | Commands::Explain { .. }
+            | Commands::Search { .. }
+            | Commands::Completions { .. } => None,
+            Commands::Logs { node_name, .. } => Some(format!(
+                "Stream logs from StellarNode '{node_name}' (read-only, no cluster mutation)"
+            )),
+            Commands::Debug {
+                node_name,
+                ephemeral,
+                ..
+            } => {
+                if *ephemeral {
+                    Some(format!(
+                        "Attach ephemeral debug container to StellarNode '{node_name}'"
+                    ))
+                } else {
+                    Some(format!("Exec into pod for StellarNode '{node_name}'"))
+                }
+            }
+            Commands::IncidentReport(_) => {
+                Some("Generate incident report (read-only, no cluster mutation)".to_string())
+            }
+        };
+        if let Some(desc) = action {
+            println!("[dry-run] Would: {desc}");
+            println!("[dry-run] No state-changing API calls were made.");
+            return Ok(());
+        }
+    }
+
     match cli.command {
         Commands::Version => {
-            // Fetch operator version from cluster if available
-            let operator_version = {
-                match Client::try_default().await {
-                    Ok(client) => {
-                        // Try to get operator deployment version
-                        let deployments: kube::Api<k8s_openapi::api::apps::v1::Deployment> =
-                            kube::Api::namespaced(client, "stellar-system");
-                        match deployments.get("stellar-operator").await {
-                            Ok(deploy) => deploy
-                                .spec
-                                .and_then(|s| s.template.spec)
-                                .and_then(|p| p.containers.first().cloned())
-                                .and_then(|c| c.image)
-                                .unwrap_or_else(|| "unknown".to_string()),
-                            Err(_) => "not deployed".to_string(),
+            let operator_version = match Client::try_default().await {
+                Ok(client) => {
+                    let deployments: kube::Api<k8s_openapi::api::apps::v1::Deployment> =
+                        kube::Api::namespaced(client, "stellar-system");
+                    match deployments.get("stellar-operator").await {
+                        Ok(deploy) => {
+                            // Prefer the well-known label set by Helm
+                            deploy
+                                .metadata
+                                .labels
+                                .as_ref()
+                                .and_then(|l| l.get("app.kubernetes.io/version"))
+                                .cloned()
+                                // Fall back to parsing the image tag
+                                .or_else(|| {
+                                    deploy
+                                        .spec
+                                        .and_then(|s| s.template.spec)
+                                        .and_then(|p| p.containers.into_iter().next())
+                                        .and_then(|c| c.image)
+                                        .and_then(|img| {
+                                            img.rsplit_once(':').map(|(_, tag)| tag.to_string())
+                                        })
+                                })
+                                .unwrap_or_else(|| "unknown".to_string())
                         }
+                        Err(e) => format!("not deployed ({e})"),
                     }
-                    Err(_) => "cluster not accessible".to_string(),
                 }
+                Err(_) => "cluster not accessible".to_string(),
             };
 
             println!("kubectl-stellar v{}", env!("CARGO_PKG_VERSION"));
@@ -188,6 +276,16 @@ async fn run(cli: Cli) -> Result<()> {
             )
             .await
         }
+        Commands::Events {
+            node_name,
+            all_namespaces,
+            watch,
+        } => events(
+            node_name.as_deref(),
+            all_namespaces,
+            cli.namespace.as_deref(),
+            watch,
+        ),
         Commands::SyncStatus {
             node_name,
             all_namespaces,
@@ -215,6 +313,7 @@ async fn run(cli: Cli) -> Result<()> {
             explain::explain_error(&error_code);
             Ok(())
         }
+        Commands::Search { query, full } => search_docs(&query, full),
         Commands::Completions { shell } => {
             use clap::CommandFactory;
             use clap_complete::generate;
@@ -223,7 +322,78 @@ async fn run(cli: Cli) -> Result<()> {
             generate(shell, &mut cmd, name, &mut std::io::stdout());
             Ok(())
         }
+        Commands::IncidentReport(args) => stellar_k8s::incident::run_incident_report(args).await,
     }
+}
+
+fn search_docs(query: &str, full: bool) -> Result<()> {
+    use stellar_k8s::search;
+    let results = search::search(query);
+
+    if results.is_empty() {
+        println!("No results found for '{query}'");
+        return Ok(());
+    }
+
+    println!("Found {} results for '{}':\n", results.len(), query);
+
+    for (doc, snippets) in results {
+        println!("\x1b[1;34m{}\x1b[0m ({})", doc.title, doc.path);
+        if full {
+            println!("{}\n", doc.content);
+        } else {
+            for snippet in snippets {
+                println!("  {snippet}\n");
+            }
+        }
+    }
+
+    Ok(())
+}
+
+fn build_events_field_selector(node_name: Option<&str>) -> String {
+    let mut selectors = vec!["involvedObject.kind=StellarNode".to_string()];
+    if let Some(name) = node_name {
+        selectors.push(format!("involvedObject.name={name}"));
+    }
+    selectors.join(",")
+}
+
+fn events(
+    node_name: Option<&str>,
+    all_namespaces: bool,
+    namespace: Option<&str>,
+    watch: bool,
+) -> Result<()> {
+    let field_selector = build_events_field_selector(node_name);
+    let mut cmd = std::process::Command::new("kubectl");
+    cmd.arg("get").arg("events");
+
+    if all_namespaces {
+        cmd.arg("-A");
+    } else {
+        cmd.arg("-n").arg(namespace.unwrap_or("default"));
+    }
+
+    cmd.arg("--field-selector").arg(field_selector);
+    cmd.arg("-o").arg("wide");
+
+    if watch {
+        cmd.arg("--watch");
+    }
+
+    let status = cmd
+        .status()
+        .map_err(|e| Error::ConfigError(format!("Failed to execute kubectl get events: {e}")))?;
+
+    if !status.success() {
+        return Err(Error::ConfigError(format!(
+            "kubectl get events failed with exit code: {:?}",
+            status.code()
+        )));
+    }
+
+    Ok(())
 }
 
 /// Helper function to format nodes as JSON
@@ -705,7 +875,6 @@ mod tests {
                 node_type,
                 network: StellarNetwork::Testnet,
                 version: "v21.0.0".to_string(),
-                history_mode: Default::default(),
                 replicas: 1,
                 resources: Default::default(),
                 storage: Default::default(),
@@ -731,6 +900,7 @@ mod tests {
                 network_policy: None,
                 dr_config: None,
                 pod_anti_affinity: Default::default(),
+                placement: Default::default(),
                 topology_spread_constraints: None,
                 cve_handling: None,
                 read_replica_config: None,
@@ -738,8 +908,13 @@ mod tests {
                 oci_snapshot: None,
                 service_mesh: None,
                 forensic_snapshot: None,
+                label_propagation: None,
                 resource_meta: None,
                 read_pool_endpoint: None,
+                sidecars: None,
+                history_mode: Default::default(),
+                custom_network_passphrase: None,
+                nat_traversal: None,
             },
             status: Some(StellarNodeStatus {
                 #[allow(deprecated)]
@@ -763,6 +938,7 @@ mod tests {
                 quorum_analysis_timestamp: None,
                 vault_observed_secret_version: None,
                 forensic_snapshot_phase: None,
+                label_propagation_status: None,
             }),
         }
     }
@@ -831,5 +1007,31 @@ mod tests {
                 "Failed for all_namespaces={all_namespaces:?}, node_name={node_name:?}, namespace={namespace:?}"
             );
         }
+    }
+
+    #[test]
+    fn test_image_tag_fallback_parsing() {
+        // Simulates the fallback: extract tag from image string
+        let image = "ghcr.io/stellar/stellar-k8s:v1.2.3";
+        let tag = image.rsplit_once(':').map(|(_, t)| t.to_string());
+        assert_eq!(tag, Some("v1.2.3".to_string()));
+
+        let no_tag = "ghcr.io/stellar/stellar-k8s";
+        assert!(no_tag.rsplit_once(':').is_none());
+    }
+
+    #[test]
+    fn test_build_events_field_selector_all_nodes() {
+        let selector = build_events_field_selector(None);
+        assert_eq!(selector, "involvedObject.kind=StellarNode");
+    }
+
+    #[test]
+    fn test_build_events_field_selector_specific_node() {
+        let selector = build_events_field_selector(Some("validator-a"));
+        assert_eq!(
+            selector,
+            "involvedObject.kind=StellarNode,involvedObject.name=validator-a"
+        );
     }
 }

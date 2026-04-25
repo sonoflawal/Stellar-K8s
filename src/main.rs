@@ -1,3 +1,4 @@
+use std::env;
 use std::process::{self};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
@@ -5,10 +6,16 @@ use std::sync::Arc;
 use chrono::Utc;
 use clap::{Parser, Subcommand};
 use k8s_openapi::api::coordination::v1::Lease;
+use k8s_openapi::apiextensions_apiserver::pkg::apis::apiextensions::v1::CustomResourceDefinition;
 use k8s_openapi::apimachinery::pkg::apis::meta::v1::MicroTime;
 use kube::api::{Api, ObjectMeta, Patch, PatchParams, PostParams};
-use stellar_k8s::{controller, crd::StellarNode, preflight, Error};
-use tracing::{debug, info, warn, Level};
+use kube::ResourceExt;
+use stellar_k8s::controller::archive_prune::{prune_archive, PruneArchiveArgs};
+use stellar_k8s::controller::diff::{diff, DiffArgs};
+use stellar_k8s::infra;
+use stellar_k8s::log_scrub::ScrubLayer;
+use stellar_k8s::{controller, crd::StellarNode, incident, preflight, Error};
+use tracing::{debug, info, info_span, warn, Instrument, Level};
 use tracing_subscriber::{fmt, prelude::*, EnvFilter};
 
 #[derive(Parser, Debug)]
@@ -16,18 +23,30 @@ use tracing_subscriber::{fmt, prelude::*, EnvFilter};
     author,
     version,
     about = "Stellar-K8s: Cloud-Native Kubernetes Operator for Stellar Infrastructure",
-    long_about = "stellar-operator manages StellarNode custom resources on Kubernetes.\n\n\
-        It reconciles the desired state of Stellar validator, Horizon, and Soroban RPC nodes,\n\
-        handles leader election, optional mTLS, peer discovery, and a latency-aware scheduler.\n\n\
-        EXAMPLES:\n  \
-        stellar-operator run --namespace stellar-system\n  \
-        stellar-operator run --namespace stellar-system --enable-mtls\n  \
-        stellar-operator run --namespace stellar-system --scheduler\n  \
-        stellar-operator run --namespace stellar-system --dry-run\n  \
-        stellar-operator run --dump-config\n  \
-        stellar-operator webhook --bind 0.0.0.0:8443 --cert-path /tls/tls.crt --key-path /tls/tls.key\n  \
-        stellar-operator info --namespace stellar-system\n  \
-        stellar-operator version"
+    long_about = "\
+\x1b[1;36m\
+  ███████╗████████╗███████╗██╗     ██╗      █████╗ ██████╗       ██╗  ██╗ █████╗ ███████╗\n\
+  ██╔════╝╚══██╔══╝██╔════╝██║     ██║     ██╔══██╗██╔══██╗      ██║ ██╔╝██╔══██╗██╔════╝\n\
+  ███████╗   ██║   █████╗  ██║     ██║     ███████║██████╔╝█████╗█████╔╝ ╚█████╔╝███████╗\n\
+  ╚════██║   ██║   ██╔══╝  ██║     ██║     ██╔══██║██╔══██╗╚════╝██╔═██╗ ██╔══██╗╚════██║\n\
+  ███████║   ██║   ███████╗███████╗███████╗██║  ██║██║  ██║      ██║  ██╗╚█████╔╝███████║\n\
+  ╚══════╝   ╚═╝   ╚══════╝╚══════╝╚══════╝╚═╝  ╚═╝╚═╝  ╚═╝      ╚═╝  ╚═╝ ╚════╝ ╚══════╝\n\
+\x1b[0m\
+\x1b[1;35m  Cloud-Native Stellar Infrastructure on Kubernetes\x1b[0m\n\
+\x1b[90m  Built with Rust 🦀 · Powered by kube-rs · Apache 2.0\x1b[0m\n\n\
+stellar-operator manages StellarNode custom resources on Kubernetes.\n\n\
+It reconciles the desired state of Stellar validator, Horizon, and Soroban RPC nodes,\n\
+handles leader election, optional mTLS, peer discovery, and a latency-aware scheduler.\n\n\
+EXAMPLES:\n  \
+stellar-operator run --namespace stellar-system\n  \
+stellar-operator run --namespace stellar-system --enable-mtls\n  \
+stellar-operator run --namespace stellar-system --scheduler\n  \
+stellar-operator run --namespace stellar-system --dry-run\n  \
+stellar-operator run --dump-config\n  \
+stellar-operator webhook --bind 0.0.0.0:8443 --cert-path /tls/tls.crt --key-path /tls/tls.key\n  \
+stellar-operator info --namespace stellar-system\n  \
+stellar-operator check-crd\n  \
+stellar-operator version"
 )]
 struct Args {
     #[command(subcommand)]
@@ -40,10 +59,20 @@ enum Commands {
     Run(RunArgs),
     /// Run the admission webhook server
     Webhook(WebhookArgs),
+    /// Run the StellarBenchmark controller (can be co-located with the main operator)
+    Benchmark(BenchmarkArgs),
     /// Show version and build information
     Version,
     /// Show cluster information (node count) for a namespace
     Info(InfoArgs),
+    /// Verify StellarNode CRD installation and expected version
+    CheckCrd,
+    /// Prune old history archive checkpoints
+    PruneArchive(PruneArchiveArgs),
+    /// Show difference between desired and live cluster state
+    Diff(DiffArgs),
+    /// Generate a troubleshooting runbook for a StellarNode
+    GenerateRunbook(GenerateRunbookArgs),
     /// Local simulator (kind/k3s + operator + demo validators)
     Simulator(SimulatorCli),
     /// Generate shell completion scripts
@@ -52,6 +81,14 @@ enum Commands {
         #[arg(value_enum)]
         shell: clap_complete::Shell,
     },
+    /// Generate an incident report for a specific time window
+    IncidentReport(incident::IncidentReportArgs),
+}
+
+#[derive(clap::ValueEnum, Clone, Debug)]
+enum LogFormat {
+    Json,
+    Pretty,
 }
 
 #[derive(Parser, Debug)]
@@ -70,6 +107,11 @@ enum Commands {
         NOTE: --scheduler and --dry-run are mutually exclusive."
 )]
 struct RunArgs {
+    /// GitHub repository in owner/repo format used for label readiness preflight.
+    /// If omitted, GitHub preflight is skipped.
+    #[arg(long, env = "GITHUB_REPOSITORY")]
+    github_repo: Option<String>,
+
     /// Enable mutual TLS for the REST API.
     ///
     /// When set, the operator provisions a CA and server certificate in the target namespace,
@@ -130,21 +172,25 @@ struct RunArgs {
     #[arg(long, env = "SCHEDULER_NAME", default_value = "stellar-scheduler")]
     scheduler_name: String,
 
-    /// Print the resolved runtime configuration and exit without starting the operator.
-    ///
-    /// Loads the operator config from the path in STELLAR_OPERATOR_CONFIG (or the default
-    /// /etc/stellar-operator/config.yaml), merges it with all CLI flags and environment
-    /// variables, prints the result as YAML, and exits with code 0.
-    ///
-    /// Example: --dump-config
-    #[arg(long)]
-    dump_config: bool,
-    /// Run preflight checks and exit without starting the operator
+    /// Requeue interval in seconds for retriable reconciliation errors.
+    #[arg(long, env = "RETRY_BUDGET_RETRIABLE_SECS", default_value_t = 15)]
+    retry_budget_retriable_secs: u64,
 
-    /// Run preflight checks and exit without starting the operator.
-    /// Env: PREFLIGHT_ONLY
+    /// Requeue interval in seconds for non-retriable reconciliation errors.
+    #[arg(long, env = "RETRY_BUDGET_NONRETRIABLE_SECS", default_value_t = 60)]
+    retry_budget_nonretriable_secs: u64,
+
+    /// Maximum HTTP retry attempts for SCP and quorum queries.
+    #[arg(long, env = "RETRY_BUDGET_MAX_ATTEMPTS", default_value_t = 3)]
+    retry_budget_max_attempts: u32,
+
+    /// Print the resolved runtime configuration and exit without starting the operator.
+    #[arg(long)]
+    pub dump_config: bool,
+
+    /// Run preflight checks and exit without starting the operator
     #[arg(long, env = "PREFLIGHT_ONLY")]
-    preflight_only: bool,
+    pub preflight_only: bool,
 }
 
 impl RunArgs {
@@ -172,6 +218,40 @@ struct InfoArgs {
     /// Example: --namespace stellar-system
     #[arg(long, env = "OPERATOR_NAMESPACE", default_value = "default")]
     namespace: String,
+}
+
+#[derive(Parser, Debug)]
+#[command(
+    about = "Generate a troubleshooting runbook for a StellarNode",
+    long_about = "Generates a context-aware troubleshooting runbook tailored to the specific\n\
+        configuration of a deployed StellarNode. The runbook includes:\n\n\
+        - Exact kubectl commands to fetch logs from specific containers\n\
+        - KMS key status checks if KMS is configured\n\
+        - S3/GCS CLI commands to verify archive buckets if archiving is enabled\n\
+        - Network information and expected peer connections based on quorum set\n\
+        - Resource and storage troubleshooting steps\n\n\
+        EXAMPLES:\n  \
+        stellar-operator generate-runbook my-validator -n stellar\n  \
+        stellar-operator generate-runbook my-validator -n stellar -o runbook.md\n  \
+        stellar-operator generate-runbook my-validator -n stellar | less"
+)]
+struct GenerateRunbookArgs {
+    /// Name of the StellarNode resource
+    node_name: String,
+
+    /// Kubernetes namespace containing the StellarNode
+    ///
+    /// Env: OPERATOR_NAMESPACE
+    ///
+    /// Example: --namespace stellar-system
+    #[arg(short, long, env = "OPERATOR_NAMESPACE", default_value = "default")]
+    namespace: String,
+
+    /// Output file path (optional, defaults to stdout)
+    ///
+    /// Example: --output runbook.md
+    #[arg(short, long)]
+    output: Option<String>,
 }
 
 #[derive(clap::Subcommand, Debug)]
@@ -266,6 +346,36 @@ struct WebhookArgs {
     /// Example: --log-level debug
     #[arg(long, env = "LOG_LEVEL", default_value = "info")]
     log_level: String,
+
+    /// Log output format (json or pretty)
+    #[arg(long, env = "LOG_FORMAT", value_enum, default_value = "json")]
+    log_format: LogFormat,
+}
+
+/// Arguments for the `benchmark` subcommand.
+#[derive(Parser, Debug)]
+#[command(
+    about = "Run the StellarBenchmark controller",
+    long_about = "Starts the StellarBenchmark controller that watches StellarBenchmark resources\n\
+        and reconciles them by spinning up ephemeral load-generator pods, collecting metrics,\n\
+        and writing results to BenchmarkReport resources or ConfigMaps.\n\n\
+        This controller can run standalone or be co-located with the main operator process.\n\n\
+        EXAMPLES:\n  \
+        stellar-operator benchmark\n  \
+        stellar-operator benchmark --namespace stellar-system\n  \
+        stellar-operator benchmark --log-level debug"
+)]
+struct BenchmarkArgs {
+    /// Kubernetes namespace to watch for StellarBenchmark resources.
+    ///
+    /// When unset, the controller watches all namespaces.
+    /// Env: OPERATOR_NAMESPACE
+    #[arg(long, env = "OPERATOR_NAMESPACE", default_value = "default")]
+    namespace: String,
+
+    /// Minimum log level.
+    #[arg(long, env = "LOG_LEVEL", default_value = "info")]
+    log_level: String,
 }
 
 #[tokio::main]
@@ -283,6 +393,9 @@ async fn main() -> Result<(), Error> {
         Commands::Info(info_args) => {
             return run_info(info_args).await;
         }
+        Commands::CheckCrd => {
+            return run_check_crd().await;
+        }
         Commands::Run(run_args) => {
             if let Err(e) = run_args.validate() {
                 eprintln!("error: {e}");
@@ -292,6 +405,9 @@ async fn main() -> Result<(), Error> {
         }
         Commands::Webhook(webhook_args) => {
             return run_webhook(webhook_args).await;
+        }
+        Commands::Benchmark(benchmark_args) => {
+            return run_benchmark_controller_cmd(benchmark_args).await;
         }
         Commands::Simulator(cli) => {
             return run_simulator(cli).await;
@@ -304,6 +420,18 @@ async fn main() -> Result<(), Error> {
             generate(shell, &mut cmd, name, &mut std::io::stdout());
             return Ok(());
         }
+        Commands::IncidentReport(args) => {
+            return incident::run_incident_report(args).await;
+        }
+        Commands::PruneArchive(args) => {
+            return prune_archive(args).await;
+        }
+        Commands::Diff(args) => {
+            return diff(args).await;
+        }
+        Commands::GenerateRunbook(args) => {
+            return run_generate_runbook(args).await;
+        }
     }
 }
 
@@ -311,6 +439,56 @@ async fn run_simulator(cli: SimulatorCli) -> Result<(), Error> {
     match cli.command {
         SimulatorCmd::Up(args) => simulator_up(args).await,
     }
+}
+
+async fn run_check_crd() -> Result<(), Error> {
+    const EXPECTED_VERSION: &str = "v1alpha1";
+    const CRD_NAME: &str = "stellarnodes.stellar.org";
+
+    let client = kube::Client::try_default()
+        .await
+        .map_err(Error::KubeError)?;
+    let crds: Api<CustomResourceDefinition> = Api::all(client);
+
+    let crd = match crds.get(CRD_NAME).await {
+        Ok(crd) => crd,
+        Err(kube::Error::Api(e)) if e.code == 404 => {
+            return Err(Error::ConfigError(format!(
+                "StellarNode CRD '{CRD_NAME}' is not installed. Install with: kubectl apply -f config/crd/stellarnode-crd.yaml"
+            )));
+        }
+        Err(e) => return Err(Error::KubeError(e)),
+    };
+
+    let versions = crd.spec.versions;
+    let installed_versions = versions
+        .iter()
+        .filter(|v| v.served)
+        .map(|v| v.name.clone())
+        .collect::<Vec<_>>();
+
+    let expected_present = versions
+        .iter()
+        .any(|v| v.name == EXPECTED_VERSION && v.served);
+
+    if !expected_present {
+        return Err(Error::ConfigError(format!(
+            "CRD '{}' is installed but expected served version '{}' is missing. Served versions: {}",
+            CRD_NAME,
+            EXPECTED_VERSION,
+            if installed_versions.is_empty() {
+                "<none>".to_string()
+            } else {
+                installed_versions.join(", ")
+            }
+        )));
+    }
+
+    println!("CRD check passed");
+    println!("CRD: {CRD_NAME}");
+    println!("Expected version: {EXPECTED_VERSION}");
+    println!("Served versions: {}", installed_versions.join(", "));
+    Ok(())
 }
 
 async fn simulator_up(args: SimulatorUpArgs) -> Result<(), Error> {
@@ -492,18 +670,224 @@ spec:
 }
 
 async fn run_info(args: InfoArgs) -> Result<(), Error> {
+    use k8s_openapi::api::apps::v1::{Deployment, StatefulSet};
+    use k8s_openapi::api::core::v1::Service;
+
     // Initialize Kubernetes client
     let client = kube::Client::try_default()
         .await
         .map_err(Error::KubeError)?;
 
-    let api: kube::Api<StellarNode> = kube::Api::namespaced(client, &args.namespace);
+    let api: kube::Api<StellarNode> = kube::Api::namespaced(client.clone(), &args.namespace);
     let nodes = api
         .list(&Default::default())
         .await
         .map_err(Error::KubeError)?;
 
     println!("Managed Stellar Nodes: {}", nodes.items.len());
+    println!();
+
+    // Display detailed information for each node
+    for node in &nodes.items {
+        let name = node.name_any();
+        let node_type = format!("{:?}", node.spec.node_type);
+        let network = format!("{:?}", node.spec.network);
+        let replicas = node.spec.replicas;
+
+        println!("StellarNode: {name}");
+        println!("  Type: {node_type}");
+        println!("  Network: {network}");
+        println!("  Replicas: {replicas}");
+
+        // Find owned Deployments
+        let deployment_api: kube::Api<Deployment> =
+            kube::Api::namespaced(client.clone(), &args.namespace);
+        let label_selector =
+            format!("app.kubernetes.io/instance={name},app.kubernetes.io/name=stellar-node");
+        let deployments = deployment_api
+            .list(&kube::api::ListParams::default().labels(&label_selector))
+            .await
+            .map_err(Error::KubeError)?;
+
+        if !deployments.items.is_empty() {
+            println!("  Deployments:");
+            for deployment in &deployments.items {
+                let dep_name = deployment.metadata.name.as_deref().unwrap_or("unknown");
+                let ready = deployment
+                    .status
+                    .as_ref()
+                    .and_then(|s| s.ready_replicas)
+                    .unwrap_or(0);
+                let desired = deployment
+                    .spec
+                    .as_ref()
+                    .and_then(|s| s.replicas)
+                    .unwrap_or(0);
+                println!("    - {dep_name} ({ready}/{desired} ready)");
+            }
+        }
+
+        // Find owned StatefulSets
+        let statefulset_api: kube::Api<StatefulSet> =
+            kube::Api::namespaced(client.clone(), &args.namespace);
+        let statefulsets = statefulset_api
+            .list(&kube::api::ListParams::default().labels(&label_selector))
+            .await
+            .map_err(Error::KubeError)?;
+
+        if !statefulsets.items.is_empty() {
+            println!("  StatefulSets:");
+            for sts in &statefulsets.items {
+                let sts_name = sts.metadata.name.as_deref().unwrap_or("unknown");
+                let ready = sts
+                    .status
+                    .as_ref()
+                    .and_then(|s| s.ready_replicas)
+                    .unwrap_or(0);
+                let desired = sts.spec.as_ref().and_then(|s| s.replicas).unwrap_or(0);
+                println!("    - {sts_name} ({ready}/{desired} ready)");
+            }
+        }
+
+        // Find owned Services
+        let service_api: kube::Api<Service> =
+            kube::Api::namespaced(client.clone(), &args.namespace);
+        let services = service_api
+            .list(&kube::api::ListParams::default().labels(&label_selector))
+            .await
+            .map_err(Error::KubeError)?;
+
+        if !services.items.is_empty() {
+            println!("  Services:");
+            for service in &services.items {
+                let svc_name = service.metadata.name.as_deref().unwrap_or("unknown");
+                let svc_type = service
+                    .spec
+                    .as_ref()
+                    .and_then(|s| s.type_.as_deref())
+                    .unwrap_or("ClusterIP");
+                let cluster_ip = service
+                    .spec
+                    .as_ref()
+                    .and_then(|s| s.cluster_ip.as_deref())
+                    .unwrap_or("None");
+                println!("    - {svc_name} (type: {svc_type}, IP: {cluster_ip})");
+            }
+        }
+
+        match infra::resolve_stellar_node_infra(&client, node).await {
+            Ok(summary) if !summary.is_empty() => {
+                println!("  Infra Details:");
+                println!(
+                    "    Hardware Generation: {}",
+                    summary.hardware_generation_label()
+                );
+
+                for assignment in &summary.assignments {
+                    let kube_node = assignment.kubernetes_node.as_deref().unwrap_or("pending");
+                    println!(
+                        "    - Pod {} on {} ({})",
+                        assignment.pod_name, kube_node, assignment.hardware_generation
+                    );
+
+                    if assignment.feature_labels.is_empty() {
+                        println!("      feature.node.kubernetes.io/* labels: none found");
+                    } else {
+                        println!("      feature.node.kubernetes.io/* labels:");
+                        for (key, value) in &assignment.feature_labels {
+                            println!("        - {key}={value}");
+                        }
+                    }
+                }
+            }
+            Ok(_) => {
+                println!("  Infra Details:");
+                println!("    Hardware Generation: unknown");
+                println!("    Pods are not scheduled yet, so node feature labels are unavailable.");
+            }
+            Err(err) => {
+                println!("  Infra Details:");
+                println!("    Hardware Generation: unknown");
+                println!("    Failed to inspect Kubernetes node labels: {err}");
+            }
+        }
+
+        println!();
+    }
+
+    Ok(())
+}
+
+async fn run_generate_runbook(args: GenerateRunbookArgs) -> Result<(), Error> {
+    use kube::api::Api;
+    use kube::Client;
+    use stellar_k8s::runbook::generate_runbook;
+
+    // Create Kubernetes client
+    let client = Client::try_default()
+        .await
+        .map_err(|e| Error::ConfigError(format!("Failed to create Kubernetes client: {e}")))?;
+
+    // Get the StellarNode resource
+    let api: Api<stellar_k8s::crd::StellarNode> = Api::namespaced(client, &args.namespace);
+    let node = api
+        .get(&args.node_name)
+        .await
+        .map_err(|_e| Error::NotFound {
+            kind: "StellarNode".to_string(),
+            name: args.node_name.clone(),
+            namespace: args.namespace.clone(),
+        })?;
+
+    // Generate the runbook
+    let runbook = generate_runbook(&node)?;
+
+    // Output to file or stdout
+    if let Some(output_path) = args.output {
+        std::fs::write(&output_path, &runbook).map_err(Error::IoError)?;
+        println!("Runbook generated successfully: {output_path}");
+    } else {
+        println!("{runbook}");
+    }
+
+    Ok(())
+}
+
+/// Run the StellarBenchmark controller as a standalone process.
+async fn run_benchmark_controller_cmd(args: BenchmarkArgs) -> Result<(), Error> {
+    use stellar_k8s::controller::run_benchmark_controller;
+
+    // Minimal tracing setup for the benchmark controller.
+    let env_filter = tracing_subscriber::EnvFilter::builder()
+        .with_default_directive(
+            args.log_level
+                .parse()
+                .unwrap_or(tracing::Level::INFO.into()),
+        )
+        .from_env_lossy();
+
+    tracing_subscriber::fmt()
+        .json()
+        .with_env_filter(env_filter)
+        .init();
+
+    info!(
+        "Starting StellarBenchmark controller v{}",
+        env!("CARGO_PKG_VERSION")
+    );
+
+    let client = kube::Client::try_default()
+        .await
+        .map_err(Error::KubeError)?;
+
+    // The benchmark controller always acts as leader (it is stateless and
+    // idempotent, so multiple replicas are safe).
+    let is_leader = Arc::new(AtomicBool::new(true));
+
+    run_benchmark_controller(client, is_leader)
+        .await
+        .map_err(|e| Error::ConfigError(format!("Benchmark controller error: {e}")))?;
+
     Ok(())
 }
 
@@ -516,10 +900,19 @@ async fn run_webhook(args: WebhookArgs) -> Result<(), Error> {
         .with_default_directive(args.log_level.parse().unwrap_or(Level::INFO.into()))
         .from_env_lossy();
 
+    let fmt_layer = fmt::layer().json().with_target(true);
+
+    let namespace = std::env::var("OPERATOR_NAMESPACE").unwrap_or_else(|_| "default".to_string());
+
     tracing_subscriber::registry()
         .with(env_filter)
-        .with(fmt::layer().with_target(true))
+        .with(ScrubLayer::new())
+        .with(fmt_layer)
         .init();
+
+    let root_span =
+        info_span!("operator", node_name = "-", namespace = %namespace, reconcile_id = "-");
+    let _root_enter = root_span.enter();
 
     info!(
         "Starting Webhook Server v{} on {}",
@@ -577,6 +970,9 @@ async fn run_operator(args: RunArgs) -> Result<(), Error> {
                 "dry_run": args.dry_run,
                 "scheduler": args.scheduler,
                 "scheduler_name": args.scheduler_name,
+                "retry_budget_retriable_secs": args.retry_budget_retriable_secs,
+                "retry_budget_nonretriable_secs": args.retry_budget_nonretriable_secs,
+                "retry_budget_max_attempts": args.retry_budget_max_attempts,
             },
             "operator_config": operator_config,
         });
@@ -593,11 +989,14 @@ async fn run_operator(args: RunArgs) -> Result<(), Error> {
         .with_default_directive(Level::INFO.into())
         .from_env_lossy();
 
-    let fmt_layer = fmt::layer().with_target(true);
+    let (env_filter, reload_handle) = tracing_subscriber::reload::Layer::new(env_filter);
+
+    let fmt_layer = fmt::layer().json().with_target(true);
 
     // Register the subscriber with both stdout logging and OpenTelemetry tracing
     let registry = tracing_subscriber::registry()
         .with(env_filter)
+        .with(ScrubLayer::new())
         .with(fmt_layer);
 
     // Only enable OTEL if an endpoint is provided or via a flag
@@ -606,9 +1005,21 @@ async fn run_operator(args: RunArgs) -> Result<(), Error> {
     if otel_enabled {
         let otel_layer = stellar_k8s::telemetry::init_telemetry(&registry);
         registry.with(otel_layer).init();
-        info!("OpenTelemetry tracing initialized");
     } else {
         registry.init();
+    }
+
+    let root_span = info_span!(
+        "operator",
+        node_name = "-",
+        namespace = %args.namespace,
+        reconcile_id = "-"
+    );
+    let _root_enter = root_span.enter();
+
+    if otel_enabled {
+        info!("OpenTelemetry tracing initialized");
+    } else {
         info!("OpenTelemetry tracing disabled (OTEL_EXPORTER_OTLP_ENDPOINT not set)");
     }
 
@@ -616,6 +1027,18 @@ async fn run_operator(args: RunArgs) -> Result<(), Error> {
         "Starting Stellar-K8s Operator v{}",
         env!("CARGO_PKG_VERSION")
     );
+
+    // Fast-fail preflight for GitHub automation dependencies when explicitly configured.
+    let github_repo = args
+        .github_repo
+        .as_deref()
+        .map(str::trim)
+        .filter(|r| !r.is_empty());
+    if let Some(repo) = github_repo {
+        preflight::run_gh_label_preflight(Some(repo))?;
+    } else {
+        info!("Skipping GitHub preflight (GITHUB_REPOSITORY not set)");
+    }
 
     // Initialise operator build-info metric (Issue #301)
     #[cfg(feature = "metrics")]
@@ -677,31 +1100,7 @@ async fn run_operator(args: RunArgs) -> Result<(), Error> {
             .get(controller::mtls::SERVER_CERT_SECRET_NAME)
             .await
             .map_err(Error::KubeError)?;
-        let data = secret
-            .data
-            .ok_or_else(|| Error::ConfigError("Secret has no data".to_string()))?;
-
-        let cert_pem = data
-            .get("tls.crt")
-            .ok_or_else(|| Error::ConfigError("Missing tls.crt".to_string()))?
-            .0
-            .clone();
-        let key_pem = data
-            .get("tls.key")
-            .ok_or_else(|| Error::ConfigError("Missing tls.key".to_string()))?
-            .0
-            .clone();
-        let ca_pem = data
-            .get("ca.crt")
-            .ok_or_else(|| Error::ConfigError("Missing ca.crt".to_string()))?
-            .0
-            .clone();
-
-        Some(stellar_k8s::MtlsConfig {
-            cert_pem,
-            key_pem,
-            ca_pem,
-        })
+        Some(controller::mtls::load_mtls_config_from_secret(&secret)?)
     } else {
         None
     };
@@ -725,9 +1124,12 @@ async fn run_operator(args: RunArgs) -> Result<(), Error> {
         let identity = holder_identity.clone();
         let is_leader_bg = Arc::clone(&is_leader);
 
-        tokio::spawn(async move {
-            run_leader_election(lease_client, &lease_ns, &identity, is_leader_bg).await;
-        });
+        tokio::spawn(
+            async move {
+                run_leader_election(lease_client, &lease_ns, &identity, is_leader_bg).await;
+            }
+            .instrument(root_span.clone()),
+        );
     }
 
     // Update leader-status and uptime metrics every 10 s (Issue #301)
@@ -747,6 +1149,7 @@ async fn run_operator(args: RunArgs) -> Result<(), Error> {
 
     // Create shared controller state
     let operator_config = stellar_k8s::controller::OperatorConfig::load();
+    let oidc_config = operator_config.oidc.clone();
     let state = Arc::new(controller::ControllerState {
         client: client.clone(),
         enable_mtls: args.enable_mtls,
@@ -754,24 +1157,38 @@ async fn run_operator(args: RunArgs) -> Result<(), Error> {
         watch_namespace: args.watch_namespace.clone(),
         mtls_config: mtls_config.clone(),
         dry_run: args.dry_run,
+        retry_budget_retriable_secs: args.retry_budget_retriable_secs,
+        retry_budget_nonretriable_secs: args.retry_budget_nonretriable_secs,
+        retry_budget_max_attempts: args.retry_budget_max_attempts,
         is_leader: Arc::clone(&is_leader),
         event_reporter: kube::runtime::events::Reporter {
             controller: "stellar-operator".to_string(),
             instance: None,
         },
         operator_config: Arc::new(operator_config),
+        reconcile_id_counter: std::sync::atomic::AtomicU64::new(0),
+        last_reconcile_success: Arc::new(std::sync::atomic::AtomicU64::new(0)),
+        log_reload_handle: reload_handle,
+        log_level_expires_at: Arc::new(tokio::sync::Mutex::new(None)),
+        last_event_received: Arc::new(std::sync::atomic::AtomicU64::new(0)),
+        job_registry: Arc::new(stellar_k8s::controller::JobRegistry::new()),
+        audit_log: Arc::new(stellar_k8s::controller::AuditLog::new()),
+        oidc_config,
     });
 
     // Start the peer discovery manager
     let peer_discovery_client = client.clone();
     let peer_discovery_config = controller::PeerDiscoveryConfig::default();
-    tokio::spawn(async move {
-        let manager =
-            controller::PeerDiscoveryManager::new(peer_discovery_client, peer_discovery_config);
-        if let Err(e) = manager.run().await {
-            tracing::error!("Peer discovery manager error: {:?}", e);
+    tokio::spawn(
+        async move {
+            let manager =
+                controller::PeerDiscoveryManager::new(peer_discovery_client, peer_discovery_config);
+            if let Err(e) = manager.run().await {
+                tracing::error!("Peer discovery manager error: {:?}", e);
+            }
         }
-    });
+        .instrument(root_span.clone()),
+    );
 
     // Start the feature-flag watcher (watches stellar-operator-config ConfigMap)
     let feature_flags = controller::feature_flags::new_shared();
@@ -801,11 +1218,14 @@ async fn run_operator(args: RunArgs) -> Result<(), Error> {
             .map(axum_server::tls_rustls::RustlsConfig::from_config);
         let server_tls = rustls_config.clone();
 
-        tokio::spawn(async move {
-            if let Err(e) = stellar_k8s::rest_api::run_server(api_state, server_tls).await {
-                tracing::error!("REST API server error: {:?}", e);
+        tokio::spawn(
+            async move {
+                if let Err(e) = stellar_k8s::rest_api::run_server(api_state, server_tls).await {
+                    tracing::error!("REST API server error: {:?}", e);
+                }
             }
-        });
+            .instrument(root_span.clone()),
+        );
 
         // Certificate rotation: when mTLS is enabled, periodically check and rotate
         // server cert if within threshold, then graceful reload of TLS config
@@ -822,60 +1242,66 @@ async fn run_operator(args: RunArgs) -> Result<(), Error> {
                 .unwrap_or(controller::mtls::DEFAULT_CERT_ROTATION_THRESHOLD_DAYS);
             let is_leader_rot = Arc::clone(&is_leader);
 
-            tokio::spawn(async move {
-                let mut interval = tokio::time::interval(std::time::Duration::from_secs(3600)); // check hourly
-                interval.tick().await; // first tick completes immediately
-                loop {
-                    interval.tick().await;
-                    if !is_leader_rot.load(Ordering::Relaxed) {
-                        continue;
-                    }
-                    match controller::mtls::maybe_rotate_server_cert(
-                        &rotation_client,
-                        &rotation_namespace,
-                        rotation_dns.clone(),
-                        rotation_threshold_days,
-                    )
-                    .await
-                    {
-                        Ok(true) => {
-                            // Rotation performed: fetch new secret and reload TLS
-                            let secrets: kube::Api<k8s_openapi::api::core::v1::Secret> =
-                                kube::Api::namespaced(rotation_client.clone(), &rotation_namespace);
-                            if let Ok(secret) =
-                                secrets.get(controller::mtls::SERVER_CERT_SECRET_NAME).await
-                            {
-                                if let (Some(cert), Some(key), Some(ca)) = (
-                                    secret.data.as_ref().and_then(|d| d.get("tls.crt")),
-                                    secret.data.as_ref().and_then(|d| d.get("tls.key")),
-                                    secret.data.as_ref().and_then(|d| d.get("ca.crt")),
-                                ) {
-                                    match stellar_k8s::rest_api::build_tls_server_config(
-                                        &cert.0, &key.0, &ca.0,
+            tokio::spawn(
+                async move {
+                    let mut interval = tokio::time::interval(std::time::Duration::from_secs(3600)); // check hourly
+                    interval.tick().await; // first tick completes immediately
+                    loop {
+                        interval.tick().await;
+                        if !is_leader_rot.load(Ordering::Relaxed) {
+                            continue;
+                        }
+                        match controller::mtls::maybe_rotate_server_cert(
+                            &rotation_client,
+                            &rotation_namespace,
+                            rotation_dns.clone(),
+                            rotation_threshold_days,
+                        )
+                        .await
+                        {
+                            Ok(true) => {
+                                // Rotation performed: fetch new secret and reload TLS
+                                let secrets: kube::Api<k8s_openapi::api::core::v1::Secret> =
+                                    kube::Api::namespaced(
+                                        rotation_client.clone(),
+                                        &rotation_namespace,
+                                    );
+                                if let Ok(secret) =
+                                    secrets.get(controller::mtls::SERVER_CERT_SECRET_NAME).await
+                                {
+                                    if let (Some(cert), Some(key), Some(ca)) = (
+                                        secret.data.as_ref().and_then(|d| d.get("tls.crt")),
+                                        secret.data.as_ref().and_then(|d| d.get("tls.key")),
+                                        secret.data.as_ref().and_then(|d| d.get("ca.crt")),
                                     ) {
-                                        Ok(new_config) => {
-                                            rustls_config.reload_from_config(new_config);
-                                            info!(
+                                        match stellar_k8s::rest_api::build_tls_server_config(
+                                            &cert.0, &key.0, &ca.0,
+                                        ) {
+                                            Ok(new_config) => {
+                                                rustls_config.reload_from_config(new_config);
+                                                info!(
                                                 "TLS server config reloaded with new certificate"
                                             );
-                                        }
-                                        Err(e) => {
-                                            tracing::error!(
+                                            }
+                                            Err(e) => {
+                                                tracing::error!(
                                                 "Failed to build TLS config after rotation: {:?}",
                                                 e
                                             );
+                                            }
                                         }
                                     }
                                 }
                             }
-                        }
-                        Ok(false) => {}
-                        Err(e) => {
-                            tracing::error!("Certificate rotation check failed: {:?}", e);
+                            Ok(false) => {}
+                            Err(e) => {
+                                tracing::error!("Certificate rotation check failed: {:?}", e);
+                            }
                         }
                     }
                 }
-            });
+                .instrument(root_span.clone()),
+            );
         }
     }
 
@@ -887,6 +1313,36 @@ async fn run_operator(args: RunArgs) -> Result<(), Error> {
     let shutdown_namespace = args.namespace.clone();
     let shutdown_is_leader = Arc::clone(&is_leader);
     let shutdown_identity = holder_identity.clone();
+
+    // Spawn the StellarBenchmark controller as a background task so it runs
+    // alongside the main StellarNode controller in the same process.
+    {
+        let bench_client = client.clone();
+        let bench_is_leader = Arc::clone(&is_leader);
+        tokio::spawn(async move {
+            if let Err(e) =
+                controller::run_benchmark_controller(bench_client, bench_is_leader).await
+            {
+                tracing::error!("StellarBenchmark controller error: {:?}", e);
+            }
+        });
+    }
+
+    // Spawn the auto-snapshot worker.
+    // This background task periodically creates CSI VolumeSnapshots for all
+    // Validator nodes with `spec.snapshotSchedule` configured, and tracks
+    // bootstrap status for nodes started from a snapshot.
+    {
+        let snapshot_client = client.clone();
+        let snapshot_reporter = kube::runtime::events::Reporter {
+            controller: "stellar-operator-snapshot-worker".to_string(),
+            instance: None,
+        };
+        tokio::spawn(async move {
+            controller::run_snapshot_worker(snapshot_client, snapshot_reporter).await;
+        });
+        info!("Auto-snapshot worker spawned");
+    }
 
     let result = tokio::select! {
         res = controller::run_controller(state) => {
@@ -1254,6 +1710,13 @@ mod cli_tests {
     fn unknown_flag_is_rejected() {
         let result = parse_run(&["--nonexistent-flag"]);
         assert!(result.is_err(), "unknown flags should be rejected by clap");
+    }
+
+    #[test]
+    fn check_crd_subcommand_parses() {
+        let parsed = Args::try_parse_from(["stellar-operator", "check-crd"])
+            .expect("check-crd subcommand should parse");
+        assert!(matches!(parsed.command, Commands::CheckCrd));
     }
 
     // ── simulator args ────────────────────────────────────────────────────────
