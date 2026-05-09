@@ -5,7 +5,7 @@
 
 use chrono::Utc;
 use kube::{Client, ResourceExt};
-use tracing::{info, instrument, warn};
+use tracing::{debug, info, instrument, warn};
 
 use crate::crd::{DRPeerHealth, DRRole, DRSyncStrategy, DisasterRecoveryStatus, StellarNode};
 use crate::error::Result;
@@ -82,15 +82,6 @@ pub async fn reconcile_dr(
         "Unreachable".to_string()
     });
     if primary_healthy {
-        status.last_peer_contact = Some(Utc::now().to_rfc3339());
-    }
-
-    status.peer_health = Some(if peer_healthy {
-        "Healthy".to_string()
-    } else {
-        "Unreachable".to_string()
-    });
-    if peer_healthy {
         status.last_peer_contact = Some(Utc::now().to_rfc3339());
     }
 

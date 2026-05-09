@@ -7,8 +7,7 @@ use serde::{Deserialize, Serialize};
 #[kube(
     group = "stellar.org",
     version = "v1alpha1",
-    kind = "ClusterRegistry",
-    cluster_scoped
+    kind = "ClusterRegistry"
 )]
 #[serde(rename_all = "camelCase")]
 pub struct ClusterRegistrySpec {

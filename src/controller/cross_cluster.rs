@@ -16,7 +16,7 @@ use kube::{
     api::{Api, Patch, PatchParams},
     Client, ResourceExt,
 };
-use tracing::{info, instrument, warn};
+use tracing::{debug, info, instrument, warn};
 
 use crate::crd::{CrossClusterConfig, CrossClusterMode, StellarNode};
 use crate::error::{Error, Result};

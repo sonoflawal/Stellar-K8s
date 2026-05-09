@@ -33,7 +33,7 @@
 //! ```
 
 use crate::crd::StellarNode;
-use crate::error::Result;
+use crate::error::{Result, Error};
 use k8s_openapi::api::apps::v1::Deployment;
 use k8s_openapi::api::batch::v1::{Job, JobSpec};
 use k8s_openapi::api::core::v1::{Container, PodSpec, PodTemplateSpec, SecretVolumeSource, Service, Volume};

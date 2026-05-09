@@ -387,7 +387,7 @@ pub async fn get_metrics_discovery() -> Response {
 /// The HPA uses this to scale Horizon Deployments based on per-pod metrics.
 /// Fetch a metric value from the Prometheus registry
 /// Returns the metric value as a string, or None if not found
-fn get_metric_value(metric_type: &StellarMetricType, namespace: &str, name: &str) -> Option<i64> {
+fn get_metric_from_registry(metric_type: &StellarMetricType, namespace: &str, name: &str) -> Option<i64> {
     let metric_name = metric_type.prometheus_name();
     let mut buffer = String::new();
     if encode(&mut buffer, &crate::controller::metrics::REGISTRY).is_err() {
@@ -816,7 +816,7 @@ mod tests {
             .set(123);
 
         assert_eq!(
-            get_metric_value(
+            get_metric_from_registry(
                 &StellarMetricType::RequestsPerSecond,
                 "test-ns",
                 "horizon-pod-0"
@@ -840,7 +840,7 @@ mod tests {
             .set(42);
 
         assert_eq!(
-            get_metric_value(&StellarMetricType::HorizonQueueLength, "test-ns", "horizon-pod-0"),
+            get_metric_from_registry(&StellarMetricType::HorizonQueueLength, "test-ns", "horizon-pod-0"),
             Some(42)
         );
     }

@@ -73,6 +73,7 @@ pub use stellar_benchmark::{
     EnvVar as BenchmarkEnvVar, PodResult, ResultStorage, StellarBenchmark, StellarBenchmarkSpec,
     StellarBenchmarkStatus, Toleration as BenchmarkToleration,
 };
+pub use multi_region::{
     ClusterConfig, ClusterHealthStatus, FailoverPolicy, MultiRegionConfig, MultiRegionHealthCheck,
     MultiRegionSpec, MultiRegionStatus, SecretSyncConfig,
 };
