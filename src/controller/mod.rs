@@ -54,6 +54,7 @@ pub mod canary;
 pub mod cross_cloud_failover;
 pub mod feature_flags;
 pub mod gas_autoscaling;
+pub mod gitops_upgrade;
 pub mod horizon_metrics_collector;
 pub mod horizon_scaler;
 pub mod jurisdiction;
@@ -65,6 +66,7 @@ pub mod pss;
 pub mod resource_meta;
 pub mod snapshot_integrity;
 
+pub mod anomaly_detection;
 pub(crate) mod archive_health;
 pub mod archive_prune;
 pub mod audit;
@@ -72,11 +74,10 @@ pub mod audit_log;
 pub mod audit_recorder;
 pub mod audit_sink;
 pub mod audit_worker;
-pub mod anomaly_detection;
-pub mod compliance_export;
 pub mod background_jobs;
 pub mod captive_core;
 pub mod chaos_engineering;
+pub mod compliance_export;
 pub mod conditions;
 pub mod cost;
 pub mod cross_cluster;
@@ -124,9 +125,9 @@ pub(crate) mod resources;
 mod resources_test;
 pub mod service_mesh;
 mod snapshot;
+pub mod snapshot_worker;
 pub mod soroban_cache;
 pub mod spot_drain;
-pub mod snapshot_worker;
 pub mod storage_migration;
 pub(crate) mod sync_scale;
 pub(crate) mod sync_state_monitor;
@@ -138,13 +139,13 @@ pub(crate) mod vsl;
 pub mod webhook_delivery;
 pub mod zk_archive_verifier;
 
+pub use anomaly_detection::{run_anomaly_detection, AnomalyDetector, AnomalyEvent};
 pub use archive_health::{
     calculate_backoff, check_archive_integrity, check_history_archive_health, ArchiveHealthResult,
     ArchiveIntegrityResult, ARCHIVE_LAG_THRESHOLD,
 };
 pub use audit_log::{AdminAction, AuditEntry, AuditLog};
 pub use audit_recorder::AuditRecorder;
-pub use anomaly_detection::{run_anomaly_detection, AnomalyDetector, AnomalyEvent};
 pub use background_jobs::{JobKind, JobRecord, JobRegistry, JobState, MAX_JOBS};
 pub use benchmark::run_benchmark_controller;
 pub use blue_green::{
@@ -169,6 +170,10 @@ pub use feature_flags::{
     watch_feature_flags, FeatureFlags, SharedFeatureFlags, FEATURE_FLAGS_CONFIGMAP,
 };
 pub use finalizers::STELLAR_NODE_FINALIZER;
+pub use gitops_upgrade::{
+    GitOpsEngine, GitOpsUpgradeController, GitOpsUpgradePlan, ProtocolUpgradeStep,
+    ProtocolUpgradeTimeline,
+};
 pub use health::{check_node_health, HealthCheckResult};
 pub use jurisdiction::{
     build_jurisdiction_node_affinity, compliance_report, merge_jurisdiction_tolerations,
