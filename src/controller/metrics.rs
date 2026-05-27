@@ -268,14 +268,13 @@ pub static TRANSACTION_RESULT_TOTAL: Lazy<
 > = Lazy::new(Family::default);
 
 /// Histogram tracking Horizon migration duration in seconds
-pub static HORIZON_MIGRATION_DURATION_SECONDS: Lazy<
-    Family<HorizonMigrationLabels, Histogram>,
-> = Lazy::new(|| {
-    fn migration_histogram() -> Histogram {
-        Histogram::new(exponential_buckets(0.1, 2.0, 16))
-    }
-    Family::new_with_constructor(migration_histogram)
-});
+pub static HORIZON_MIGRATION_DURATION_SECONDS: Lazy<Family<HorizonMigrationLabels, Histogram>> =
+    Lazy::new(|| {
+        fn migration_histogram() -> Histogram {
+            Histogram::new(exponential_buckets(0.1, 2.0, 16))
+        }
+        Family::new_with_constructor(migration_histogram)
+    });
 
 /// Counter tracking Horizon migration results
 pub static HORIZON_MIGRATION_TOTAL: Lazy<Family<HorizonMigrationLabels, Counter<u64, AtomicU64>>> =
@@ -769,7 +768,9 @@ pub fn set_traffic_system_load(namespace: &str, name: &str, value: i64) {
         namespace: namespace.to_string(),
         name: name.to_string(),
     };
-    TRAFFIC_SYSTEM_LOAD_PERCENT.get_or_create(&labels).set(value);
+    TRAFFIC_SYSTEM_LOAD_PERCENT
+        .get_or_create(&labels)
+        .set(value);
 }
 
 /// Set current circuit breaker state.
@@ -778,7 +779,9 @@ pub fn set_traffic_circuit_breaker_state(namespace: &str, name: &str, state: i64
         namespace: namespace.to_string(),
         name: name.to_string(),
     };
-    TRAFFIC_CIRCUIT_BREAKER_STATE.get_or_create(&labels).set(state);
+    TRAFFIC_CIRCUIT_BREAKER_STATE
+        .get_or_create(&labels)
+        .set(state);
 }
 
 /// Node phase enumeration for metrics

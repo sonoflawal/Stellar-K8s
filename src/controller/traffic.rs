@@ -188,8 +188,7 @@ impl CircuitBreaker {
                 }
             }
             CircuitBreakerState::Open => {
-                if now_ms
-                    .saturating_sub(self.opened_at_ms.unwrap_or(now_ms))
+                if now_ms.saturating_sub(self.opened_at_ms.unwrap_or(now_ms))
                     >= self.config.open_window_ms
                 {
                     self.state = CircuitBreakerState::HalfOpen;
@@ -341,7 +340,9 @@ fn update_traffic_telemetry(
         *entry = entry.saturating_add(1);
         guard.effective_rps = effective_rps;
         guard.system_load = system_load;
-        guard.breaker_states.insert(backend.to_string(), breaker_state);
+        guard
+            .breaker_states
+            .insert(backend.to_string(), breaker_state);
     }
 }
 
@@ -422,8 +423,16 @@ pub struct TrafficShaper {
 
 impl TrafficShaper {
     pub fn new(config: TrafficShapingConfig, now_ms: u64) -> Self {
-        let token_bucket = TokenBucket::new(config.buckets.token_capacity, config.adaptive.base_rps, now_ms);
-        let leaky_bucket = LeakyBucket::new(config.buckets.leaky_capacity, config.adaptive.base_rps, now_ms);
+        let token_bucket = TokenBucket::new(
+            config.buckets.token_capacity,
+            config.adaptive.base_rps,
+            now_ms,
+        );
+        let leaky_bucket = LeakyBucket::new(
+            config.buckets.leaky_capacity,
+            config.adaptive.base_rps,
+            now_ms,
+        );
 
         Self {
             config,
@@ -451,7 +460,12 @@ impl TrafficShaper {
         breaker.on_result(success, now_ms);
     }
 
-    pub fn admit_request(&mut self, req: &TrafficRequest, system_load: f64, now_ms: u64) -> TrafficDecision {
+    pub fn admit_request(
+        &mut self,
+        req: &TrafficRequest,
+        system_load: f64,
+        now_ms: u64,
+    ) -> TrafficDecision {
         let effective_rps = self.effective_rps(system_load);
         self.token_bucket.set_refill_rps(effective_rps);
         self.leaky_bucket.set_leak_rps(effective_rps);
@@ -476,9 +490,22 @@ impl TrafficShaper {
             );
             #[cfg(feature = "metrics")]
             {
-                super::metrics::observe_traffic_request("default", "traffic-shaper", req.priority.as_str(), "dropped");
-                super::metrics::set_traffic_effective_rps("default", "traffic-shaper", effective_rps as i64);
-                super::metrics::set_traffic_system_load("default", "traffic-shaper", (system_load * 100.0) as i64);
+                super::metrics::observe_traffic_request(
+                    "default",
+                    "traffic-shaper",
+                    req.priority.as_str(),
+                    "dropped",
+                );
+                super::metrics::set_traffic_effective_rps(
+                    "default",
+                    "traffic-shaper",
+                    effective_rps as i64,
+                );
+                super::metrics::set_traffic_system_load(
+                    "default",
+                    "traffic-shaper",
+                    (system_load * 100.0) as i64,
+                );
                 super::metrics::set_traffic_circuit_breaker_state(
                     "default",
                     "traffic-shaper",
@@ -509,7 +536,12 @@ impl TrafficShaper {
             );
             #[cfg(feature = "metrics")]
             {
-                super::metrics::observe_traffic_request("default", "traffic-shaper", req.priority.as_str(), "dropped");
+                super::metrics::observe_traffic_request(
+                    "default",
+                    "traffic-shaper",
+                    req.priority.as_str(),
+                    "dropped",
+                );
             }
             return decision;
         }
@@ -548,8 +580,16 @@ impl TrafficShaper {
                 req.priority.as_str(),
                 if allowed { "allowed" } else { "dropped" },
             );
-            super::metrics::set_traffic_effective_rps("default", "traffic-shaper", effective_rps as i64);
-            super::metrics::set_traffic_system_load("default", "traffic-shaper", (system_load * 100.0) as i64);
+            super::metrics::set_traffic_effective_rps(
+                "default",
+                "traffic-shaper",
+                effective_rps as i64,
+            );
+            super::metrics::set_traffic_system_load(
+                "default",
+                "traffic-shaper",
+                (system_load * 100.0) as i64,
+            );
             super::metrics::set_traffic_circuit_breaker_state(
                 "default",
                 "traffic-shaper",

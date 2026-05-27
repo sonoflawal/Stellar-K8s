@@ -8,13 +8,13 @@ mod tests {
     use k8s_openapi::apimachinery::pkg::apis::meta::v1::ObjectMeta;
     use kube::ResourceExt;
 
-    use crate::crd::{
-        NodeType, ReadReplicaConfig, ReadReplicaStrategy, ResourceRequirements, StellarNetwork,
-        StellarNode, StellarNodeSpec,
-    };
     use crate::controller::traffic::{
         get_traffic_dashboard_snapshot, TrafficPriority, TrafficRequest, TrafficShaper,
         TrafficShapingConfig,
+    };
+    use crate::crd::{
+        NodeType, ReadReplicaConfig, ReadReplicaStrategy, ResourceRequirements, StellarNetwork,
+        StellarNode, StellarNodeSpec,
     };
 
     /// Helper function to create a minimal valid StellarNodeSpec
