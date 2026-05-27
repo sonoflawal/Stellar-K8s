@@ -123,6 +123,12 @@ pub async fn run_server(
         // Dashboard routes
         .route("/", get(dashboard_ui))
         .route("/api/v1/dashboard/overview", get(dashboard_handlers::dashboard_overview))
+        .route("/api/v1/dashboard/metrics", get(dashboard_handlers::dashboard_metrics))
+        .route("/api/v1/analytics/logs", get(dashboard_handlers::log_analytics))
+        .route("/api/v1/config/analyze", axum::routing::post(dashboard_handlers::analyze_config_impact))
+        .route("/api/v1/security/posture", get(dashboard_handlers::security_posture))
+        .route("/api/v1/capacity/plan", get(dashboard_handlers::capacity_planning))
+        .route("/api/v1/capacity/what-if", axum::routing::post(dashboard_handlers::run_what_if))
         .route(
             "/api/v1/dashboard/nodes/:namespace/:name/logs",
             get(dashboard_handlers::get_node_logs),

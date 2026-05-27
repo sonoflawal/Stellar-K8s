@@ -16,11 +16,94 @@ use crate::crd::{NodeType, StellarNetwork, StellarNode};
 use crate::rest_api::auth::RequestIdentity;
 
 use super::dashboard_dto::{
-    ConditionDisplay, DashboardOverview, MetricsSummary, NetworkBreakdown, NodeAction,
+    ConditionDisplay, ConfigDriftResponse, ConfigImpactResponse, DashboardOverview,
+    LogAnalyticsResponse, LogPatternDto, MetricsSummary, NetworkBreakdown, NodeAction,
     NodeActionRequest, NodeActionResponse, NodeConditionsResponse, NodeLogsResponse,
-    NodeTypeBreakdown, OperatorLogsResponse,
+    NodeTypeBreakdown, OperatorLogsResponse, SecurityPostureResponse,
+    CapacityPlanningResponse, WhatIfRequest,
 };
 use super::dto::ErrorResponse;
+
+/// Get log analytics summary
+pub async fn log_analytics(
+    State(state): State<Arc<ControllerState>>,
+) -> Json<LogAnalyticsResponse> {
+    let top_patterns = state.analytics_engine.get_top_patterns(10);
+    
+    let patterns = top_patterns.into_iter().map(|p| LogPatternDto {
+        template: p.message_template,
+        count: p.count,
+        last_seen: format!("{:?}", p.last_seen), // Simplified for now
+    }).collect();
+
+    Json(LogAnalyticsResponse { top_patterns: patterns })
+}
+
+/// Analyze configuration impact
+pub async fn analyze_config_impact(
+    State(state): State<Arc<ControllerState>>,
+    Json(new_spec): Json<StellarNodeSpec>,
+) -> Json<ConfigImpactResponse> {
+    // For impact analysis, we'd ideally compare against the current spec.
+    // Here we use a dummy old spec for demonstration.
+    let old_spec = new_spec.clone(); // In reality, fetch from K8s
+    
+    let impact = crate::config_mgmt::impact::ImpactAnalyzer::analyze(&old_spec, &new_spec);
+    let validation_errors = crate::config_mgmt::validation::Validator::validate(&new_spec);
+
+    Json(ConfigImpactResponse {
+        impact,
+        validation_errors,
+    })
+}
+
+/// Get security posture summary
+pub async fn security_posture(
+    State(_state): State<Arc<ControllerState>>,
+) -> Json<SecurityPostureResponse> {
+    // Mock posture for demonstration
+    let posture = crate::security::SecurityPosture {
+        overall_score: 0.95,
+        findings: vec![],
+        compliance_status: true,
+    };
+
+    Json(SecurityPostureResponse { posture })
+}
+
+/// Get capacity planning summary
+pub async fn capacity_planning(
+    State(_state): State<Arc<ControllerState>>,
+) -> Json<CapacityPlanningResponse> {
+    // Mock data for demonstration
+    let now = chrono::Utc::now();
+    let forecasts = vec![
+        crate::capacity_planning::GrowthForecast {
+            resource_type: "CPU".to_string(),
+            forecast_points: vec![(now, 1.0), (now + chrono::Duration::days(30), 1.5)],
+            model_used: "Linear".to_string(),
+            growth_rate_pct: 50.0,
+        }
+    ];
+
+    let engine = crate::capacity_planning::recommendation::RecommendationEngine::new(1.2);
+    let recommendations = engine.generate_recommendations(&forecasts);
+
+    Json(CapacityPlanningResponse {
+        recommendations,
+        forecasts,
+        bottlenecks: vec!["Storage growth exceeding 20% per month in 'stellar-mainnet'".to_string()],
+    })
+}
+
+/// Run a what-if scenario analysis
+pub async fn run_what_if(
+    State(_state): State<Arc<ControllerState>>,
+    Json(req): Json<WhatIfRequest>,
+) -> Json<crate::capacity_planning::WhatIfResult> {
+    let analyzer = crate::capacity_planning::analysis::ScenarioAnalyzer;
+    Json(analyzer.analyze_scenario(&req.scenario_name, req.scale_factor))
+}
 
 /// Dashboard overview endpoint
 #[instrument(skip(state))]
