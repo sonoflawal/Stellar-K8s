@@ -915,6 +915,37 @@ fn validate_ingress(ingress: &IngressConfig, errors: &mut Vec<SpecValidationErro
             }
         }
     }
+
+    if let Some(rl) = &ingress.rate_limit {
+        if rl.requests_per_second == Some(0) {
+            errors.push(SpecValidationError::new(
+                "spec.ingress.rateLimit.requestsPerSecond",
+                "ingress.rateLimit.requestsPerSecond must be greater than 0",
+                "Set spec.ingress.rateLimit.requestsPerSecond to a positive integer.",
+            ));
+        }
+        if rl.requests_per_minute == Some(0) {
+            errors.push(SpecValidationError::new(
+                "spec.ingress.rateLimit.requestsPerMinute",
+                "ingress.rateLimit.requestsPerMinute must be greater than 0",
+                "Set spec.ingress.rateLimit.requestsPerMinute to a positive integer.",
+            ));
+        }
+        if rl.connections == Some(0) {
+            errors.push(SpecValidationError::new(
+                "spec.ingress.rateLimit.connections",
+                "ingress.rateLimit.connections must be greater than 0",
+                "Set spec.ingress.rateLimit.connections to a positive integer.",
+            ));
+        }
+        if rl.burst_multiplier == Some(0) {
+            errors.push(SpecValidationError::new(
+                "spec.ingress.rateLimit.burstMultiplier",
+                "ingress.rateLimit.burstMultiplier must be greater than 0",
+                "Set spec.ingress.rateLimit.burstMultiplier to a positive integer.",
+            ));
+        }
+    }
 }
 
 #[allow(dead_code)]
