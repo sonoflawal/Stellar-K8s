@@ -30,6 +30,9 @@ impl Validator {
         let req = &spec.resources.requests;
         let lim = &spec.resources.limits;
         if let (Ok(req_cpu), Ok(lim_cpu)) = (req.cpu.parse::<f64>(), lim.cpu.parse::<f64>()) {
+        if let (Some(req_cpu), Some(lim_cpu)) =
+            (parse_cpu_cores(&req.cpu), parse_cpu_cores(&lim.cpu))
+        {
             if req_cpu > lim_cpu {
                 errors.push("CPU request cannot be greater than limit".to_string());
             }
@@ -53,5 +56,14 @@ impl Validator {
         }
 
         errors
+    }
+}
+
+fn parse_cpu_cores(cpu: &str) -> Option<f64> {
+    let trimmed = cpu.trim();
+    if let Some(milli) = trimmed.strip_suffix('m') {
+        milli.parse::<f64>().ok().map(|v| v / 1000.0)
+    } else {
+        trimmed.parse::<f64>().ok()
     }
 }

@@ -21,6 +21,12 @@ use super::dashboard_dto::{
     NetworkBreakdown, NodeAction, NodeActionRequest, NodeActionResponse, NodeConditionsResponse,
     NodeLogsResponse, NodeTypeBreakdown, OperatorLogsResponse, SecurityPostureResponse,
     WhatIfRequest,
+    CapacityPlanningResponse, ConditionDisplay, ConfigImpactResponse, DashboardOverview,
+    LogAnalyticsResponse, LogPatternDto, MetricsSummary, NetworkBreakdown, NodeAction,
+    NodeActionRequest, NodeActionResponse, NodeConditionsResponse, NodeLogsResponse,
+    NodeTypeBreakdown, OperatorLogsResponse, SecurityPostureResponse, WhatIfRequest,
+    NodeTypeBreakdown, OperatorLogsResponse, SecurityPostureResponse,
+    CapacityPlanningResponse, WhatIfRequest, DRStatusResponse,
 };
 use super::dto::ErrorResponse;
 
@@ -184,6 +190,11 @@ pub async fn dashboard_metrics(
             ))
         }
     }
+/// Get real-time traffic shaping dashboard metrics.
+pub async fn traffic_dashboard(
+    State(_state): State<Arc<ControllerState>>,
+) -> Json<crate::controller::traffic::TrafficDashboardSnapshot> {
+    Json(crate::controller::traffic::get_traffic_dashboard_snapshot())
 }
 
 /// Dashboard overview endpoint
@@ -280,6 +291,44 @@ pub async fn dashboard_overview(
                 Json(ErrorResponse::new(
                     "dashboard_failed",
                     &format!("Failed to fetch dashboard data: {e}"),
+                )),
+            ))
+        }
+    }
+}
+
+/// Get metrics summary for all nodes.
+#[instrument(skip(state))]
+pub async fn dashboard_metrics(
+    State(state): State<Arc<ControllerState>>,
+) -> Result<Json<Vec<MetricsSummary>>, (StatusCode, Json<ErrorResponse>)> {
+    let api: Api<StellarNode> = Api::all(state.client.clone());
+
+    match api.list(&Default::default()).await {
+        Ok(nodes) => {
+            let mut summaries = Vec::with_capacity(nodes.items.len());
+            for node in nodes.items {
+                let namespace = node.namespace().unwrap_or_else(|| "default".to_string());
+                let name = node.name_any();
+                let status = node.status.as_ref();
+                summaries.push(MetricsSummary {
+                    namespace,
+                    name,
+                    ledger_sequence: status.and_then(|s| s.ledger_sequence),
+                    ready_replicas: status.map(|s| s.ready_replicas).unwrap_or(0),
+                    replicas: status.map(|s| s.replicas).unwrap_or(0),
+                    quorum_fragility: status.and_then(|s| s.quorum_fragility),
+                });
+            }
+            Ok(Json(summaries))
+        }
+        Err(e) => {
+            error!("Failed to list nodes for dashboard metrics: {e:?}");
+            Err((
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ErrorResponse::new(
+                    "dashboard_metrics_failed",
+                    &format!("Failed to fetch dashboard metrics: {e}"),
                 )),
             ))
         }
