@@ -64,6 +64,10 @@
 //! ```
 
 pub mod backup;
+pub mod deployment_strategy;
+pub mod load_balancer;
+pub mod message_queue;
+pub mod schema_registry;
 pub mod benchmark_compare;
 pub mod byzantine;
 pub mod canary_deployment;
