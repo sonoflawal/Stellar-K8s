@@ -317,6 +317,8 @@ pub struct ControllerState {
     pub anomaly_detector: std::sync::Arc<super::anomaly_detection::AnomalyDetector>,
     /// Plugin registry for custom reconciliation hooks and sidecar injectors.
     pub plugin_registry: std::sync::Arc<crate::plugin_sdk::PluginRegistry>,
+    /// Log analytics engine for pattern detection and anomaly reporting.
+    pub analytics_engine: std::sync::Arc<crate::logging::analytics::AnalyticsEngine>,
     /// Optional OIDC configuration for JWT-based authentication on the REST API.
     /// When `Some`, the OIDC middleware is active; when `None`, the operator falls
     /// back to Kubernetes RBAC token validation.
@@ -796,6 +798,28 @@ fn reconcile(
                 "Reconciling StellarNode {}/{} (type: {:?})",
                 namespace, node_name, obj.spec.node_type
             );
+
+            // 1. Advanced Configuration Validation
+            let validation_errors = crate::config_mgmt::validation::Validator::validate(&obj.spec);
+            if !validation_errors.is_empty() {
+                warn!("Configuration validation failed for {}/{}: {:?}", namespace, node_name, validation_errors);
+                // In a real implementation, we would update status with these errors and return Action::requeue
+            }
+
+            // 2. Automatic Rollback Check
+            if let Some(status) = &obj.status {
+                if crate::config_mgmt::rollback::RollbackManager::should_rollback(&status.conditions) {
+                    warn!("Critical failure detected for {}/{}, checking for rollback target...", namespace, node_name);
+                    // Rollback logic would go here: fetch history, find stable version, patch CRD back
+                }
+            }
+
+            // 3. Security Policy Enforcement
+            let security_violations = crate::security::policy::PolicyEnforcer::enforce_policy(&obj.spec);
+            if !security_violations.is_empty() {
+                warn!("Security policy violations detected for {}/{}: {:?}", namespace, node_name, security_violations);
+                // In a real implementation, we would block reconciliation or fire critical alerts
+            }
 
             // Manual finalizer logic to avoid HRTB Send issues with the helper closure
             if obj.metadata.deletion_timestamp.is_some() {
