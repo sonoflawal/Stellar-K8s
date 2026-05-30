@@ -63,7 +63,9 @@
 //!     enableHistoryArchive: true
 //! ```
 
+pub mod api_gateway;
 pub mod backup;
+pub mod data_pipeline;
 pub mod deployment_strategy;
 pub mod load_balancer;
 pub mod message_queue;
