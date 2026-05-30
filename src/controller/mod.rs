@@ -54,6 +54,7 @@ pub mod canary;
 pub mod cross_cloud_failover;
 pub mod feature_flags;
 pub mod gas_autoscaling;
+pub mod horizon_cache;
 pub mod gitops_upgrade;
 pub mod horizon_metrics_collector;
 pub mod horizon_scaler;
@@ -124,6 +125,7 @@ mod remediation_test;
 pub(crate) mod resources;
 #[cfg(test)]
 mod resources_test;
+pub(crate) mod secret_watcher;
 pub mod service_mesh;
 mod snapshot;
 pub mod secret_policy_controller;
@@ -210,5 +212,7 @@ pub use webhook_delivery::{
 };
 pub mod ml_pipeline;
 pub mod observability_dashboard;
+pub mod pvc_autoscaler;
+pub mod upgrade_orchestrator;
 pub mod observability_pipeline;
 pub mod resource_optimization;

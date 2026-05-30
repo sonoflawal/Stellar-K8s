@@ -96,7 +96,7 @@ The operator will recreate the certificate during the next reconciliation cycle.
 
 ### Q: Does Stellar-K8s support network isolation policies?
 
-**A:** Yes! Stellar-K8s integrates with Kubernetes NetworkPolicies to enforce network segmentation. See [Network Isolation Guide](./network-isolation.md) for comprehensive policies.
+**A:** Yes! Stellar-K8s integrates with Kubernetes NetworkPolicies to enforce network segmentation. See [Network Isolation Guide](./network-isolation.md) for the architecture and [Network Policy Templates](./network-policy-templates.md) for ready-to-apply patterns.
 
 Key ports to protect:
 - **11625**: Stellar P2P (peer-to-peer consensus)

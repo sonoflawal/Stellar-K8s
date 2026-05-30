@@ -1588,6 +1588,39 @@ fn build_ingress(node: &StellarNode, config: &IngressConfig) -> Ingress {
         }
     }
 
+    if let Some(rl) = &config.rate_limit {
+        if let Some(rps) = rl.requests_per_second {
+            annotations.insert(
+                "nginx.ingress.kubernetes.io/limit-rps".to_string(),
+                rps.to_string(),
+            );
+        }
+        if let Some(rpm) = rl.requests_per_minute {
+            annotations.insert(
+                "nginx.ingress.kubernetes.io/limit-rpm".to_string(),
+                rpm.to_string(),
+            );
+        }
+        if let Some(conns) = rl.connections {
+            annotations.insert(
+                "nginx.ingress.kubernetes.io/limit-connections".to_string(),
+                conns.to_string(),
+            );
+        }
+        if let Some(burst) = rl.burst_multiplier {
+            annotations.insert(
+                "nginx.ingress.kubernetes.io/limit-burst-multiplier".to_string(),
+                burst.to_string(),
+            );
+        }
+        if let Some(whitelist) = &rl.whitelist_cidrs {
+            annotations.insert(
+                "nginx.ingress.kubernetes.io/limit-whitelist".to_string(),
+                whitelist.clone(),
+            );
+        }
+    }
+
     let rules: Vec<IngressRule> = config
         .hosts
         .iter()
@@ -2020,6 +2053,16 @@ fn build_pod_template(
     // ==========================================================================
     if let Some(sidecars) = &node.spec.sidecars {
         pod_spec.containers.extend(sidecars.iter().cloned());
+    }
+
+    // ==========================================================================
+    // Append user-defined init containers after all operator-managed ones
+    // ==========================================================================
+    if let Some(user_init_containers) = &node.spec.init_containers {
+        pod_spec
+            .init_containers
+            .get_or_insert_with(Vec::new)
+            .extend(user_init_containers.iter().cloned());
     }
 
     // ==========================================================================

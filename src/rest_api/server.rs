@@ -20,6 +20,7 @@ use tracing::info;
 use crate::controller::ControllerState;
 use crate::{Error, Result};
 
+use super::horizon_cache_handlers;
 use super::compliance_handlers;
 use super::audit_handlers;
 use super::auth;
@@ -122,6 +123,10 @@ pub async fn run_server(
         )
         // Compliance report
         .route("/api/v1/compliance/report", get(handlers::compliance_report))
+        // Horizon cache observability (Issue #732)
+        .route(
+            "/api/v1/horizon/cache/status",
+            get(horizon_cache_handlers::horizon_cache_status),
         .route(
             "/api/v1/compliance/regulatory-report",
             get(compliance_handlers::regulatory_compliance_report),

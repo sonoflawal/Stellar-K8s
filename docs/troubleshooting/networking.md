@@ -75,6 +75,8 @@ kubectl get networkpolicies -n <namespace>
 kubectl describe networkpolicy <name> -n <namespace>
 ```
 
+If you need a starting point for common Stellar scenarios, see [Network Policy Templates](../network-policy-templates.md).
+
 A common mistake is creating a default-deny policy without an explicit allow for P2P traffic:
 
 ```yaml

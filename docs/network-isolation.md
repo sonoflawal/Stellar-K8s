@@ -139,6 +139,8 @@ When `spec.networkPolicy.enabled: true` on a `StellarNode`, the reconciler creat
 
 These policies apply to **all pods** in the namespace, not just Stellar pods. They act as a backstop if a per-node policy is accidentally deleted.
 
+For ready-to-apply examples covering validator isolation, API protection, database access, cross-namespace communication, and external access, see [Network Policy Templates](./network-policy-templates.md).
+
 For each Mainnet namespace:
 - `deny-non-mainnet-ingress` — drops ingress from any namespace not labelled `stellar.org/network=mainnet`
 - `deny-non-mainnet-egress` — drops egress to any namespace not labelled `stellar.org/network=mainnet`

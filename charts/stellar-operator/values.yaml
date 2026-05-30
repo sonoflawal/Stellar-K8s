@@ -249,7 +249,6 @@ defaultResources:
     limits:
       cpu: "4"
       memory: "8Gi"
-      
 
 # Feature flags — toggle operator capabilities at runtime without restart.
 featureFlags:
@@ -259,7 +258,6 @@ featureFlags:
   enablePeerDiscovery: true
   enableArchiveHealth: true
   enableSorobanMetrics: false
-
 
 security:
   audit:
@@ -294,6 +292,9 @@ security:
 #        kubectl label namespace stellar-testnet stellar.org/network=testnet
 #   2. Set networkIsolation.enabled=true and list the namespaces below.
 #   3. Helm upgrade.
+#
+# Ready-to-apply policy templates and testing guidance are documented in
+# docs/network-policy-templates.md.
 networkIsolation:
   # Master switch. Set to true to deploy namespace-level isolation policies.
   enabled: false
@@ -352,8 +353,8 @@ byzantineWatcher:
   # Container image for the watcher binary.
   # Defaults to the same image as the operator (stellar-watcher binary is included).
   image:
-    repository: ""   # defaults to .Values.image.repository
-    tag: ""          # defaults to .Values.image.tag / chart appVersion
+    repository: "" # defaults to .Values.image.repository
+    tag: "" # defaults to .Values.image.tag / chart appVersion
     pullPolicy: IfNotPresent
 
   # Default Stellar network for all watchers (can be overridden per region).
@@ -513,7 +514,7 @@ scpAnalytics:
     # SASL authentication (optional)
     sasl:
       enabled: false
-      mechanism: "PLAIN"  # PLAIN, SCRAM-SHA-256, SCRAM-SHA-512
+      mechanism: "PLAIN" # PLAIN, SCRAM-SHA-256, SCRAM-SHA-512
       username: ""
       password: ""
 

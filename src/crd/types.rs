@@ -949,6 +949,35 @@ pub struct SecretKeyRef {
     pub key: String,
 }
 
+/// NGINX ingress rate-limiting configuration.
+///
+/// Maps directly to the `nginx.ingress.kubernetes.io/limit-*` annotation family.
+/// All fields are optional; omitting a field leaves the corresponding annotation unset.
+#[derive(Clone, Debug, Default, Deserialize, Serialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct RateLimitConfig {
+    /// Maximum number of requests per second per client IP.
+    /// Sets `nginx.ingress.kubernetes.io/limit-rps`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub requests_per_second: Option<u32>,
+    /// Maximum number of requests per minute per client IP.
+    /// Sets `nginx.ingress.kubernetes.io/limit-rpm`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub requests_per_minute: Option<u32>,
+    /// Maximum number of concurrent connections per client IP.
+    /// Sets `nginx.ingress.kubernetes.io/limit-connections`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub connections: Option<u32>,
+    /// Burst multiplier applied on top of the per-second limit (NGINX `burst` parameter).
+    /// Sets `nginx.ingress.kubernetes.io/limit-burst-multiplier`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub burst_multiplier: Option<u32>,
+    /// Comma-separated list of CIDRs that are exempt from rate limiting.
+    /// Sets `nginx.ingress.kubernetes.io/limit-whitelist`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub whitelist_cidrs: Option<String>,
+}
+
 /// Ingress configuration
 #[derive(Clone, Debug, Default, Deserialize, Serialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
@@ -967,6 +996,9 @@ pub struct IngressConfig {
     /// ExternalDNS configuration for automated record management
     #[serde(skip_serializing_if = "Option::is_none")]
     pub external_dns: Option<ExternalDNSConfig>,
+    /// NGINX rate-limiting configuration for public-facing Horizon/SorobanRpc nodes.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub rate_limit: Option<RateLimitConfig>,
 }
 
 /// Ingress host entry
