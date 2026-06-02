@@ -3,11 +3,13 @@
 //! The StellarNode CRD represents a managed Stellar infrastructure node.
 //! Supports Validator (Core), Horizon API, and Soroban RPC node types.
 
+use k8s_openapi::api::core::v1::{Volume, VolumeMount};
 use k8s_openapi::apimachinery::pkg::apis::meta::v1::ObjectMeta;
 use k8s_openapi::apimachinery::pkg::util::intstr::IntOrString;
 use kube::CustomResource;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
+use std::collections::{BTreeMap, BTreeSet};
 
 use super::types::{
     AuditConfig, AutoscalingConfig, CertManagerConfig, Condition, CoreSyncState,
@@ -159,6 +161,22 @@ pub struct StellarNodeSpec {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub load_balancer: Option<LoadBalancerConfig>,
 
+    /// Custom labels to apply to all Services created for this StellarNode.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub service_labels: Option<BTreeMap<String, String>>,
+
+    /// Custom annotations to apply to all Services created for this StellarNode.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub service_annotations: Option<BTreeMap<String, String>>,
+
+    /// Custom pod volumes available to the main Stellar container and init containers.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub volumes: Option<Vec<Volume>>,
+
+    /// Custom volume mounts for the main Stellar container.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub volume_mounts: Option<Vec<VolumeMount>>,
+
     /// Global discovery configuration for cross-cluster discovery
     #[serde(skip_serializing_if = "Option::is_none")]
     pub global_discovery: Option<GlobalDiscoveryConfig>,
@@ -196,6 +214,22 @@ pub struct StellarNodeSpec {
     /// Intelligent pod placement configuration (e.g. SCP-aware anti-affinity)
     #[serde(default)]
     pub placement: PlacementConfig,
+
+    /// Custom node affinity for pod scheduling.
+    ///
+    /// This is applied at the pod level and can be used to pin workloads to
+    /// specific node pools, hardware classes, or zones.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(schema_with = "super::schema_utils::object_schema")]
+    pub node_affinity: Option<k8s_openapi::api::core::v1::NodeAffinity>,
+
+    /// Custom tolerations applied to pods created for this StellarNode.
+    ///
+    /// Useful when target node pools use taints and workloads need explicit
+    /// tolerations to be schedulable.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    #[schemars(schema_with = "super::schema_utils::array_of_objects_schema")]
+    pub tolerations: Vec<k8s_openapi::api::core::v1::Toleration>,
 
     #[serde(skip_serializing_if = "Option::is_none")]
     #[schemars(schema_with = "super::schema_utils::array_of_objects_schema")]
@@ -316,6 +350,44 @@ pub struct StellarNodeSpec {
     #[schemars(with = "Option<Vec<serde_json::Value>>")]
     pub init_containers: Option<Vec<k8s_openapi::api::core::v1::Container>>,
 
+    /// Optional pod-level and container-level security context overrides.
+    ///
+    /// When unset the operator applies secure defaults compliant with the
+    /// Kubernetes Pod Security Standards `restricted` profile:
+    /// - `runAsNonRoot: true`
+    /// - `readOnlyRootFilesystem: true`
+    /// - `allowPrivilegeEscalation: false`
+    /// - `capabilities.drop: ["ALL"]`
+    /// - `seccompProfile.type: RuntimeDefault`
+    ///
+    /// # Example — restricted (default)
+    /// ```yaml
+    /// securityContext:
+    ///   runAsNonRoot: true
+    ///   readOnlyRootFilesystem: true
+    ///   allowPrivilegeEscalation: false
+    ///   capabilities:
+    ///     drop: ["ALL"]
+    ///   seccompProfile:
+    ///     type: RuntimeDefault
+    /// ```
+    ///
+    /// # Example — baseline (loosened for legacy images)
+    /// ```yaml
+    /// securityContext:
+    ///   runAsNonRoot: true
+    ///   allowPrivilegeEscalation: false
+    ///   readOnlyRootFilesystem: false
+    /// ```
+    ///
+    /// # Example — privileged (use only in dev/test namespaces)
+    /// ```yaml
+    /// securityContext:
+    ///   privileged: true
+    /// ```
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub security_context: Option<super::types::StellarSecurityContext>,
+
     /// Optional overrides for the liveness, readiness, and startup probes on the main container.
     ///
     /// When set, the specified fields replace the operator's built-in probe defaults.
@@ -334,6 +406,19 @@ pub struct StellarNodeSpec {
     /// ```
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub probes: Option<ProbeConfig>,
+
+    /// Additional environment variables injected into Validator (Stellar Core)
+    /// container instances.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    #[schemars(schema_with = "super::schema_utils::array_of_objects_schema")]
+    pub stellar_core_env: Vec<k8s_openapi::api::core::v1::EnvVar>,
+
+    /// Additional environment variables injected into Horizon container
+    /// instances.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    #[schemars(schema_with = "super::schema_utils::array_of_objects_schema")]
+    pub horizon_env: Vec<k8s_openapi::api::core::v1::EnvVar>,
+
     /// Cross-cloud failover configuration for Horizon clusters.
     /// Enables seamless traffic failover between cloud providers (AWS, GCP, Azure)
     /// during major provider outages.
@@ -443,6 +528,10 @@ impl Default for StellarNodeSpec {
             vpa_config: None,
             ingress: None,
             load_balancer: None,
+            service_labels: None,
+            service_annotations: None,
+            volumes: None,
+            volume_mounts: None,
             global_discovery: None,
             cross_cluster: None,
             strategy: Default::default(),
@@ -453,6 +542,8 @@ impl Default for StellarNodeSpec {
             replication_config: None,
             pod_anti_affinity: Default::default(),
             placement: Default::default(),
+            node_affinity: None,
+            tolerations: Vec::new(),
             topology_spread_constraints: None,
             cve_handling: None,
             snapshot_schedule: None,
@@ -472,6 +563,8 @@ impl Default for StellarNodeSpec {
             init_containers: None,
             cert_manager: None,
             probes: None,
+            stellar_core_env: Vec::new(),
+            horizon_env: Vec::new(),
             cross_cloud_failover: None,
             hitless_upgrade: None,
             ebpf_config: None,
@@ -594,6 +687,70 @@ impl StellarNodeSpec {
                     "backupUrl must not be empty when set",
                     "Provide a valid S3 or HTTPS URL for the compressed backup archive.",
                 ));
+            }
+        }
+
+        // 2c. Custom pod volume validation
+        if let Some(ref volumes) = self.volumes {
+            let mut seen = BTreeSet::new();
+            for volume in volumes {
+                if volume.name.is_empty() {
+                    errors.push(SpecValidationError::new(
+                        "spec.volumes[].name",
+                        "Volume name must not be empty",
+                        "Give each custom volume a non-empty name. Example: name: custom-config",
+                    ));
+                } else if !seen.insert(volume.name.clone()) {
+                    errors.push(SpecValidationError::new(
+                        "spec.volumes[].name",
+                        format!("Duplicate volume name '{}' in spec.volumes", volume.name),
+                        "Give each custom volume a unique name.",
+                    ));
+                }
+
+                if ["data", "config", "tls", "keys", "cloudhsm-socket", "dedicatedhsm-socket", "soroban-cache"]
+                    .contains(&volume.name.as_str())
+                {
+                    errors.push(SpecValidationError::new(
+                        "spec.volumes[].name",
+                        format!("Volume name '{}' conflicts with an operator-managed pod volume", volume.name),
+                        "Use a different custom volume name to avoid conflicting with built-in operator volumes.",
+                    ));
+                }
+            }
+        }
+
+        let custom_volume_names: BTreeSet<String> = self
+            .volumes
+            .as_ref()
+            .map(|volumes| volumes.iter().map(|v| v.name.clone()).collect())
+            .unwrap_or_default();
+
+        if let Some(ref volume_mounts) = self.volume_mounts {
+            let mut seen = BTreeSet::new();
+            for mount in volume_mounts {
+                if mount.name.is_empty() {
+                    errors.push(SpecValidationError::new(
+                        "spec.volumeMounts[].name",
+                        "Volume mount name must not be empty",
+                        "Give each custom volume mount a non-empty name. Example: name: custom-config",
+                    ));
+                } else if !seen.insert(mount.name.clone()) {
+                    errors.push(SpecValidationError::new(
+                        "spec.volumeMounts[].name",
+                        format!("Duplicate volumeMount name '{}' in spec.volumeMounts", mount.name),
+                        "Give each custom volume mount a unique name.",
+                    ));
+                } else if !custom_volume_names.contains(&mount.name) {
+                    errors.push(SpecValidationError::new(
+                        "spec.volumeMounts[].name",
+                        format!(
+                            "Volume mount '{}' does not reference a declared custom volume",
+                            mount.name
+                        ),
+                        "Define the referenced custom volume in spec.volumes or remove the volume mount.",
+                    ));
+                }
             }
         }
 
