@@ -375,6 +375,6 @@ If `stellar.org/expansion-in-flight: "true"` has been set for more than 30 minut
 ## See Also
 
 - [Proactive Disk Scaling](proactive-disk-scaling.md)
-- [Disk Scaling Quick Reference](disk-scaling-quick-reference.md)
+- [Proactive Disk Scaling](proactive-disk-scaling.md)
 - [Resource Limits](resource-limits.md)
 - [Performance Tuning](performance-tuning.md)

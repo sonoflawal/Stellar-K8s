@@ -164,7 +164,7 @@ diskScaling:
   maxExpansions: 8                   # Fewer larger expansions
 ```
 
-See [Disk Scaling Quick Reference](./disk-scaling-quick-reference.md#configuration-cheat-sheet).
+See [Disk Scaling Quick Reference](./proactive-disk-scaling.md#configuration).
 
 ### Q: Why isn't disk scaling triggering for my node?
 
@@ -199,7 +199,7 @@ See [Disk Scaling Quick Reference](./disk-scaling-quick-reference.md#configurati
    kubectl logs -n stellar-system -l app=stellar-operator | grep -i "disk\|expansion"
    ```
 
-See [Disk Scaling Quick Reference - Troubleshooting](./disk-scaling-quick-reference.md#troubleshooting-checklist).
+See [Disk Scaling Quick Reference - Troubleshooting](./proactive-disk-scaling.md#troubleshooting).
 
 ### Q: What are the cloud provider limits for volume expansion?
 
@@ -228,7 +228,7 @@ kubectl patch pvc stellar-node-data -n stellar-system \
 - Review pod logs for any issues: `kubectl logs -n stellar-system <pod-name>`
 - Monitor disk usage to ensure expansion took effect
 
-See [Disk Scaling Quick Reference - Manual Expansion](./disk-scaling-quick-reference.md#manual-expansion).
+See [Disk Scaling Quick Reference - Manual Expansion](./proactive-disk-scaling.md#manual-expansion).
 
 ### Q: How long does ledger sync typically take?
 
@@ -605,14 +605,14 @@ See [Archive Pruning](./archive-pruning.md) and [Proactive Disk Scaling](./proac
 
 ## Related Documentation
 
-- [Getting Started Guide](./getting-started.md)
+- [Getting Started Guide](./getting-started/quick-start.md)
 - [API Reference](./api-reference.md)
 - [mTLS Setup and Certificate Rotation](./mtls-guide.md)
 - [Network Isolation Guide](./network-isolation.md)
 - [Health Checks Documentation](./health-checks.md)
 - [Dynamic Peer Discovery](./peer-discovery.md)
 - [Proactive Disk Scaling](./proactive-disk-scaling.md)
-- [Archive Pruning Integration Guide](./PRUNING_INTEGRATION_GUIDE.md)
+- [Archive Pruning Guide](./archive-pruning.md)
 - [Troubleshooting Guide](./troubleshooting/networking.md)
 - [Glossary](./glossary.md)
 

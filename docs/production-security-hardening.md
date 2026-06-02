@@ -9,7 +9,7 @@ This document complements, but does not replace, the more focused guides already
 - `docs/secret-management-kms.md`
 - `docs/secret-rotation.md`
 - `docs/compliance-reporting.md`
-- `docs/SECURITY_TESTING.md`
+- `SECURITY.md`
 - `docs/incident-response/post-mortem.md`
 - `SECURITY.md`
 
@@ -580,7 +580,7 @@ Recommended release policy:
 
 ### 2. Dependency and image scanning
 
-Use the existing repo guidance from `docs/SECURITY_TESTING.md` and `SECURITY.md` to run:
+Use the existing repo guidance from `SECURITY.md` to run:
 
 - `cargo audit` for Rust dependency advisories.
 - Trivy or Grype for image and filesystem scans.

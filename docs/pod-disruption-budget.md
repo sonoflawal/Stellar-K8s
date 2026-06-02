@@ -367,7 +367,7 @@ kube_poddisruptionbudget_status_disruptions_allowed{namespace="stellar-system"} 
 ## Related Documentation
 
 - [Kubernetes PodDisruptionBudget Documentation](https://kubernetes.io/docs/tasks/run-application/configure-pdb/)
-- [Stellar-K8s Quickstart](quickstart.md)
+- [Stellar-K8s Quick Start](getting-started/quick-start.md)
 - [Stellar-K8s Resource Limits](resource-limits.md)
 - [Stellar-K8s Health Checks](health-checks.md)
 
